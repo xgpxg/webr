@@ -1,8 +1,12 @@
+use std::convert::Infallible;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
+use futures_util::stream::BoxStream;
+use futures_util::{Stream, StreamExt};
 use tokio_util::io::ReaderStream;
 
 /// 文件下载响应。
@@ -68,15 +72,13 @@ impl FileResponse {
     /// 文件不存在时返回 404。整个文件读入内存。
     pub async fn from_path(path: impl Into<PathBuf>) -> Result<Self, crate::error::WebrError> {
         let path: PathBuf = path.into();
-        let data = tokio::fs::read(&path).await.map_err(|_| {
-            crate::error::WebrError::Http {
+        let data = tokio::fs::read(&path)
+            .await
+            .map_err(|_| crate::error::WebrError::Http {
                 status: StatusCode::NOT_FOUND,
                 message: "File not found".into(),
-            }
-        })?;
-        let filename = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned());
+            })?;
+        let filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
         let content_type = path
             .file_name()
             .and_then(|n| guess_mime(&n.to_string_lossy()))
@@ -97,15 +99,14 @@ impl FileResponse {
         path: impl Into<PathBuf>,
     ) -> Result<Self, crate::error::WebrError> {
         let path: PathBuf = path.into();
-        let file = tokio::fs::File::open(&path).await.map_err(|_| {
-            crate::error::WebrError::Http {
-                status: StatusCode::NOT_FOUND,
-                message: "File not found".into(),
-            }
-        })?;
-        let filename = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned());
+        let file =
+            tokio::fs::File::open(&path)
+                .await
+                .map_err(|_| crate::error::WebrError::Http {
+                    status: StatusCode::NOT_FOUND,
+                    message: "File not found".into(),
+                })?;
+        let filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
         let content_type = path
             .file_name()
             .and_then(|n| guess_mime(&n.to_string_lossy()))
@@ -254,4 +255,174 @@ fn guess_mime(filename: &str) -> Option<&'static str> {
     };
 
     Some(mime)
+}
+
+// ─── SSE (Server-Sent Events) ──────────────────────────────
+
+/// 单条 SSE 事件。
+///
+/// 通过链式调用设置 `event`、`id`、`retry` 等字段。
+///
+/// # 示例
+///
+/// ```rust
+/// // 仅数据
+/// SseEvent::new("hello")
+///
+/// // 带事件类型和 ID
+/// SseEvent::new(r#"{"msg":"hi"}"#).event("chat").id("1")
+/// ```
+pub struct SseEvent {
+    data: String,
+    event: Option<String>,
+    id: Option<String>,
+    retry: Option<Duration>,
+    comment: Option<String>,
+}
+
+impl SseEvent {
+    /// 创建一条仅包含数据的事件。
+    pub fn new(data: impl Into<String>) -> Self {
+        Self {
+            data: data.into(),
+            event: None,
+            id: None,
+            retry: None,
+            comment: None,
+        }
+    }
+
+    /// 设置事件类型（`event:` 字段）。
+    pub fn event(mut self, event: impl Into<String>) -> Self {
+        self.event = Some(event.into());
+        self
+    }
+
+    /// 设置事件 ID（`id:` 字段）。
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// 设置客户端重连间隔（`retry:` 字段）。
+    pub fn retry(mut self, duration: Duration) -> Self {
+        self.retry = Some(duration);
+        self
+    }
+
+    /// 添加注释行（`:` 前缀，客户端会忽略）。
+    pub fn comment(mut self, text: impl Into<String>) -> Self {
+        self.comment = Some(text.into());
+        self
+    }
+
+    /// 转换为 axum Event。
+    fn into_axum_event(self) -> axum::response::sse::Event {
+        let mut event = axum::response::sse::Event::default().data(self.data);
+        if let Some(name) = self.event {
+            event = event.event(name);
+        }
+        if let Some(id) = self.id {
+            event = event.id(id);
+        }
+        if let Some(d) = self.retry {
+            event = event.retry(d);
+        }
+        if let Some(text) = self.comment {
+            event = event.comment(text);
+        }
+        event
+    }
+}
+
+/// SSE 流式响应。
+///
+/// 接受 `Stream<Item = SseEvent>` 或 `Stream<Item = Result<SseEvent, E>>` 输入流，
+/// 自动设置 `Content-Type: text/event-stream` 并实现 `IntoResponse`。
+///
+/// # 示例
+///
+/// ```rust
+/// use webr::response::{SseEvent, SseResponse};
+/// use futures_util::stream;
+/// use std::time::Duration;
+///
+/// async fn sse_handler() -> SseResponse {
+///     let events = stream::iter(vec![
+///         SseEvent::new("hello"),
+///         SseEvent::new("world").event("greeting"),
+///     ]);
+///     SseResponse::new(events)
+///         .keep_alive(Duration::from_secs(15))
+/// }
+/// ```
+pub struct SseResponse {
+    stream: BoxStream<'static, Result<axum::response::sse::Event, Infallible>>,
+    keep_alive: Option<Duration>,
+}
+
+impl SseResponse {
+    /// 从事件流创建 SSE 响应。
+    ///
+    /// 接受 `Stream<Item = SseEvent>` 或 `Stream<Item = Result<SseEvent, E>>`。
+    /// 流中的错误事件会被跳过并记录日志。
+    pub fn new<S, E>(stream: S) -> Self
+    where
+        S: Stream + Send + 'static,
+        S::Item: IntoSseEventResult<E> + Send,
+        E: std::fmt::Display,
+    {
+        let boxed = stream.filter_map(|item| async move {
+            match item.into_result() {
+                Ok(event) => Some(Ok(event.into_axum_event())),
+                Err(e) => {
+                    tracing::warn!("SSE stream error, skipping event: {e}");
+                    None
+                }
+            }
+        });
+        Self {
+            stream: boxed.boxed(),
+            keep_alive: None,
+        }
+    }
+
+    /// 启用 keep-alive，定时发送注释行防止连接超时。
+    pub fn keep_alive(mut self, interval: Duration) -> Self {
+        self.keep_alive = Some(interval);
+        self
+    }
+}
+
+impl IntoResponse for SseResponse {
+    fn into_response(self) -> axum::response::Response {
+        let Self { stream, keep_alive } = self;
+        let sse = axum::response::sse::Sse::new(stream);
+        if let Some(d) = keep_alive {
+            sse.keep_alive(axum::response::sse::KeepAlive::new().interval(d))
+                .into_response()
+        } else {
+            sse.into_response()
+        }
+    }
+}
+
+/// 将流元素统一转为 `Result<SseEvent, E>`。
+///
+/// 使 `SseResponse::new` 同时接受 `Stream<Item = SseEvent>`
+/// 和 `Stream<Item = Result<SseEvent, E>>`。
+pub trait IntoSseEventResult<E> {
+    fn into_result(self) -> Result<SseEvent, E>;
+}
+
+impl IntoSseEventResult<Infallible> for SseEvent {
+    fn into_result(self) -> Result<SseEvent, Infallible> {
+        Ok(self)
+    }
+}
+
+impl<E> IntoSseEventResult<E> for Result<SseEvent, E> {
+    fn into_result(self) -> Result<SseEvent, E> {
+        self
+    }
 }

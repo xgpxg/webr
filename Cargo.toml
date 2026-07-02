@@ -9,6 +9,7 @@ members = [
     "examples/file-upload",
     "examples/middleware",
     "examples/validation",
+    "examples/sse",
 ]
 resolver = "2"
 

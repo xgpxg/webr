@@ -17,7 +17,7 @@ pub use webr_core::middleware::{
     CorsMiddleware, LoggerMiddleware, Middleware, Next, PanicRecovery, ScopedMiddleware,
     UnifiedResponse,
 };
-pub use webr_core::response::FileResponse;
+pub use webr_core::response::{FileResponse, IntoSseEventResult, SseEvent, SseResponse};
 pub use webr_core::router::{IntoRoutes, WebrRouter};
 
 pub use webr_macros::HttpError;

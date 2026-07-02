@@ -4,13 +4,20 @@
 
 [English](README.md)
 
-WebR 将 Spring Boot 熟悉的开发体验带入 Rust 生态 —— 注解驱动的控制器、自动依赖注入、配置管理、内置中间件系统，一切构建于 [Axum 0.8](https://github.com/tokio-rs/axum) 之上。
+WebR 将 Spring Boot 熟悉的开发体验带入 Rust 生态 ——
+注解驱动的控制器、自动依赖注入、配置管理、内置中间件系统，一切构建于 [Axum 0.8](https://github.com/tokio-rs/axum) 之上。
 
-> **当前状态：** `webr-core` 已可用，其他模块（`webr-db`、`webr-macros` ORM 功能）正在开发中。
+## 当前状态
+
+| Crate         | 状态  | 说明        |
+|---------------|-----|-----------|
+| `webr-core`   | ✅   | webr框架核心  |
+| `webr-db`     | 进行中 | 数据库连接和ORM |
+| `webr-macros` | 进行中 | 宏         |
 
 ## 功能特性
 
-- **注解驱动控制器** — `#[controller]` + `#[get]`、`#[post]` 等注解，零样板代码定义路由。
+- **类注解驱动** — `#[controller]` + `#[get]`、`#[post]` 等注解，零样板代码定义路由。
 - **依赖注入** — `Inject<T>` 智能指针，启动时自动拓扑排序解析依赖，无需手动装配。
 - **配置系统** — 多文件 TOML 配置，支持 profile（`application-{profile}.toml`）和环境变量覆盖（`WEBR_` 前缀）。
 - **中间件系统** — 全局和路径范围中间件，简单的 trait 即可实现。内置：CORS、日志、Panic 恢复、统一响应。
@@ -154,12 +161,12 @@ async fn main(app: &mut webr::AppBuilder) -> Result<(), WebrError> {
 
 **内置中间件：**
 
-| 中间件 | 描述 |
-|---|---|
-| `LoggerMiddleware` | 请求日志，记录方法、路径、状态码、耗时 |
-| `CorsMiddleware` | Builder 模式的 CORS 跨域配置 |
-| `PanicRecovery` | 捕获 handler panic，返回 500 而非进程崩溃 |
-| `UnifiedResponse` | 将 2xx JSON 包装为 `{"code", "message", "data"}` 标准格式 |
+| 中间件                | 描述                                                |
+|--------------------|---------------------------------------------------|
+| `LoggerMiddleware` | 请求日志，记录方法、路径、状态码、耗时                               |
+| `CorsMiddleware`   | Builder 模式的 CORS 跨域配置                             |
+| `PanicRecovery`    | 捕获 handler panic，返回 500 而非进程崩溃                    |
+| `UnifiedResponse`  | 将 2xx JSON 包装为 `{"code", "message", "data"}` 标准格式 |
 
 ### 请求校验
 
@@ -205,12 +212,13 @@ pub enum UserError {
 
 参见 [`examples/`](examples/) 目录：
 
-| 示例 | 描述 |
-|---|---|
-| [`hello-world`](examples/hello-world) | 基础控制器、依赖注入、配置、统一响应 |
-| [`middleware`](examples/middleware) | 自定义鉴权中间件、路径范围路由、CORS |
-| [`validation`](examples/validation) | JSON 请求体、查询参数、表单数据的 DTO 校验 |
-| [`file-upload`](examples/file-upload) | 多文件上传、文件下载、内联预览 |
+| 示例                                    | 描述                                    |
+|---------------------------------------|---------------------------------------|
+| [`hello-world`](examples/hello-world) | 基础控制器、依赖注入、配置、统一响应                    |
+| [`middleware`](examples/middleware)   | 自定义鉴权中间件、路径范围路由、CORS                  |
+| [`validation`](examples/validation)   | JSON 请求体、查询参数、表单数据的 DTO 校验            |
+| [`file-upload`](examples/file-upload) | 多文件上传、文件下载、内联预览                       |
+| [`orm`](examples/orm)                 | 实体 CRUD、`#[sql]` 动态查询、`#[tx]` 事务提交/回滚 |
 
 运行示例：
 
@@ -225,23 +233,23 @@ cargo run
 webr/
 ├── crates/
 │   ├── webr-core/      # 核心框架（DI、配置、中间件、路由、提取器）
-│   ├── webr-db/        # 数据库模块（开发中）
-│   └── webr-macros/    # 过程宏（开发中）
+│   ├── webr-db/        # 数据库模块（连接池、事务、ORM 支持）
+│   └── webr-macros/    # 过程宏（控制器、组件、实体、SQL、事务、校验）
 ├── examples/           # 示例应用
 └── src/lib.rs          # 统一导出
 ```
 
 ## 技术栈
 
-| 组件 | Crate |
-|---|---|
-| HTTP 框架 | [Axum 0.8](https://crates.io/crates/axum) |
-| 异步运行时 | [Tokio](https://crates.io/crates/tokio) |
-| 序列化 | [Serde](https://crates.io/crates/serde) |
-| 参数校验 | [validator](https://crates.io/crates/validator) |
-| 配置 | [toml](https://crates.io/crates/toml) |
-| 日志 | [tracing](https://crates.io/crates/tracing) |
-| 自动注册 | [inventory](https://crates.io/crates/inventory) |
+| 组件      | Crate                                           |
+|---------|-------------------------------------------------|
+| HTTP 框架 | [Axum 0.8](https://crates.io/crates/axum)       |
+| 异步运行时   | [Tokio](https://crates.io/crates/tokio)         |
+| 序列化     | [Serde](https://crates.io/crates/serde)         |
+| 参数校验    | [validator](https://crates.io/crates/validator) |
+| 配置      | [toml](https://crates.io/crates/toml)           |
+| 日志      | [tracing](https://crates.io/crates/tracing)     |
+| 自动注册    | [inventory](https://crates.io/crates/inventory) |
 
 ## 许可证
 
