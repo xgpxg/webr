@@ -23,8 +23,17 @@ pub fn expand_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 // #[controller] on struct
 // 生成 Component 实现 + 构造函数 + __webr_registration
-
 fn expand_controller_struct(item_struct: ItemStruct) -> TokenStream {
+    // 拒绝泛型结构体：DI 容器基于 TypeId，泛型参数无意义且会导致 impl 不完整
+    if !item_struct.generics.params.is_empty() {
+        return syn::Error::new_spanned(
+            &item_struct.generics,
+            "#[controller] does not support generic structs, \
+             because the DI container identifies components by TypeId",
+        )
+        .to_compile_error();
+    }
+
     let struct_name = &item_struct.ident;
     let struct_name_str = struct_name.to_string();
     let inject_types = extract_inject_types(&item_struct);

@@ -6,6 +6,16 @@ pub fn expand_component(item: TokenStream) -> TokenStream {
     let item_struct: ItemStruct =
         syn::parse2(item).expect("#[component] can only be applied to a struct");
 
+    // 拒绝泛型结构体：DI 容器基于 TypeId，泛型参数无意义且会导致 impl 不完整
+    if !item_struct.generics.params.is_empty() {
+        return syn::Error::new_spanned(
+            &item_struct.generics,
+            "#[component] does not support generic structs, \
+             because the DI container identifies components by TypeId",
+        )
+        .to_compile_error();
+    }
+
     let struct_name = &item_struct.ident;
     let struct_name_str = struct_name.to_string();
     let inject_types = extract_inject_types(&item_struct);

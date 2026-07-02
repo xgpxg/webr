@@ -8,8 +8,8 @@ pub fn parse_config_prefix(attr: &TokenStream) -> String {
         return String::new();
     }
     // 解析 meta: prefix = "..."
-    let meta: syn::MetaNameValue = syn::parse2(attr.clone())
-        .expect("#[config] expects: #[config(prefix = \"...\")]");
+    let meta: syn::MetaNameValue =
+        syn::parse2(attr.clone()).expect("#[config] expects: #[config(prefix = \"...\")]");
     if meta.path.is_ident("prefix") {
         if let syn::Expr::Lit(syn::ExprLit {
             lit: syn::Lit::Str(s),
