@@ -22,7 +22,7 @@ set -euo pipefail
 
 BASE_URL="${1:-http://127.0.0.1:8080}"
 CONCURRENCY="${2:-100}"
-DURATION="${3:-10s}"
+DURATION="${3:-3s}"
 THREADS="${4:-4}"
 REPORT_DIR="bench_results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -34,14 +34,17 @@ ENDPOINTS=(
     "GET|/|Simple text response with DI config injection"
     "GET|/health|Health check endpoint (StatusCode only)"
     "GET|/info|Text response with formatted config values"
-    "GET|/api/users|JSON array response via service layer"
-    "GET|/api/users/1|Path parameter extraction + JSON response"
-    "POST|/api/users|JSON body deserialization + validation + response"
+    "GET|/items|JSON array response (mock data)"
+    "GET|/items/1|Path parameter extraction + JSON response"
+    "POST|/items|JSON body deserialization + validation + response"
+    "PUT|/items/1|JSON body update with path parameter"
+    "DELETE|/items/1|Delete with path parameter (204 response)"
 )
 
-# POST body for endpoints that need it
+# Request bodies for endpoints that need them
 declare -A POST_BODIES
-POST_BODIES["POST|/api/users"]='{"name":"bench-user"}'
+POST_BODIES["POST|/items"]='{"name":"bench-item"}'
+POST_BODIES["PUT|/items/1"]='{"name":"bench-item-updated"}'
 
 # ─── Helper Functions ───────────────────────────────────────────────
 
@@ -178,13 +181,13 @@ for i in "${!ENDPOINTS[@]}"; do
     # Build wrk command
     wrk_cmd="wrk -t${THREADS} -c${CONCURRENCY} -d${DURATION}"
 
-    # Add POST body if needed
-    if [ "$method" = "POST" ]; then
+    # Add request body if needed (POST/PUT)
+    if [ "$method" = "POST" ] || [ "$method" = "PUT" ]; then
         local_body="${POST_BODIES["${method}|${path}"]:-}"
         if [ -n "$local_body" ]; then
             lua_script="${REPORT_DIR}/post_${idx}.lua"
             cat > "$lua_script" <<LUA
-wrk.method = "POST"
+wrk.method = "${method}"
 wrk.body   = '${local_body}'
 wrk.headers["Content-Type"] = "application/json"
 LUA
