@@ -1,0 +1,9 @@
+[package]
+name = "sse-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+webr = { path = "../.." }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"

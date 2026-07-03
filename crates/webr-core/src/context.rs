@@ -179,9 +179,15 @@ impl ApplicationContext {
 
         // 排序结果少于节点数，说明存在环
         if sorted.len() != in_degree.len() {
-            return Err(Error::CircularDependency(
-                "Dependency cycle detected".into(),
-            ));
+            let cycle_names: Vec<&str> = in_degree
+                .keys()
+                .filter(|id| !sorted.contains(id))
+                .filter_map(|id| self.names.get(id).copied())
+                .collect();
+            return Err(Error::CircularDependency(format!(
+                "Dependency cycle detected among: {}",
+                cycle_names.join(", ")
+            )));
         }
 
         Ok(sorted)

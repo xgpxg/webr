@@ -4,24 +4,24 @@ pub use webr_core::component::{
 };
 pub use webr_core::config::{ConfigEntry, ConfigLoader, LogConfig, ServerConfig};
 pub use webr_core::context::ApplicationContext;
-pub use webr_core::error::{ValidationFieldError, Error, WebrResult};
+pub use webr_core::error::{Error, ValidationFieldError, WebrResult};
 
 #[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 mod db_adapter;
 
 #[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 pub mod db {
-    pub use webr_db::{
-        DatasourceConfig, DbError, Driver, PoolConfig,
-        scope_txn, try_get_txn, DbTransaction, ScopeTxnGuard, TxnInner,
-        QueryBinder, ScalarBinder, ExecutionBinder,
-        sqlx, sea_query, sea_query_binder,
-    };
     pub use crate::db_adapter::DbPool;
+    pub use webr_db::{
+        scope_txn, sea_query, sea_query_binder, sqlx, try_get_txn, DatasourceConfig, DbError,
+        DbTransaction, Driver, ExecutionBinder, PoolConfig, QueryBinder, ScalarBinder,
+        ScopeTxnGuard, TxnInner,
+    };
 }
 pub use axum::http::HeaderMap;
 pub use webr_core::extract::{Form, Header, HeaderMapExt, Json, Multipart, Path, Query};
 pub use webr_core::inject::Inject;
+pub use webr_core::middleware;
 pub use webr_core::middleware::{
     CorsMiddleware, LoggerMiddleware, Middleware, Next, PanicRecovery, ScopedMiddleware,
     UnifiedResponse,
@@ -34,6 +34,7 @@ pub use webr_macros::{
     component, config, controller, delete, entity, get, main, patch, post, put, sql, tx, Validate,
 };
 
+pub use async_trait;
 pub use axum;
 pub use inventory;
 pub use serde;

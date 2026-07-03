@@ -1,0 +1,7 @@
+[server]
+port = 8080
+host = "0.0.0.0"
+max_body_size = 52428800  # 50MB
+
+[log]
+level = "info"

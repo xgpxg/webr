@@ -14,12 +14,13 @@ use futures_util::FutureExt;
 ///
 /// ```rust
 /// use webr::middleware::{Middleware, Next};
+/// use webr::async_trait::async_trait;
 /// use axum::extract::Request;
 /// use axum::response::Response;
 ///
 /// struct AuthMiddleware;
 ///
-/// #[async_trait::async_trait]
+/// #[async_trait]
 /// impl Middleware for AuthMiddleware {
 ///     async fn handle(&self, request: Request, next: Next) -> Response {
 ///         // 前置处理：校验 Token

@@ -199,11 +199,10 @@ where
             })
             .collect();
 
-        let value = T::deserialize(serde_json::to_value(&map).map_err(|e| Error::Http {
-            status: StatusCode::BAD_REQUEST,
-            message: format!("Invalid header: {e}"),
-        })?)
-        .map_err(|e| Error::Http {
+        let deserializer = serde::de::value::MapDeserializer::<_, serde::de::value::Error>::new(
+            map.into_iter(),
+        );
+        let value = T::deserialize(deserializer).map_err(|e| Error::Http {
             status: StatusCode::BAD_REQUEST,
             message: format!("Invalid header: {e}"),
         })?;
