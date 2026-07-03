@@ -44,7 +44,7 @@ greeting = "Hello from WebR!"
 
 ```rust
 use webr::prelude::*;
-use webr::{Inject, WebrError};
+use webr::{Inject, Error};
 
 // ── Config ─────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ impl HelloController {
 // ── Entry ──────────────────────────────────────────────
 
 #[webr::main]
-async fn main(app: &mut webr::AppBuilder) -> Result<(), WebrError> {
+async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
     app.unified_response();
     Ok(())
 }
@@ -135,7 +135,7 @@ Implement the `Middleware` trait and register globally or on specific paths:
 
 ```rust
 #[webr::main]
-async fn main(app: &mut webr::AppBuilder) -> Result<(), WebrError> {
+async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
     // Global middleware
     app.middleware(PanicRecovery);
     app.middleware(LoggerMiddleware);

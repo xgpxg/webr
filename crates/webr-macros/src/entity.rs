@@ -2,21 +2,6 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Fields, ItemStruct, Type};
 
-// cfg attributes for database-specific match arms in generated code.
-const CFG_PG: &str = r#"#[cfg(feature = "postgres")]"#;
-const CFG_MY: &str = r#"#[cfg(feature = "mysql")]"#;
-const CFG_SQ: &str = r#"#[cfg(feature = "sqlite")]"#;
-
-fn cfg_pg() -> TokenStream {
-    CFG_PG.parse().unwrap()
-}
-fn cfg_my() -> TokenStream {
-    CFG_MY.parse().unwrap()
-}
-fn cfg_sq() -> TokenStream {
-    CFG_SQ.parse().unwrap()
-}
-
 /// Parsed entity metadata from #[entity(table = "...")] and struct fields.
 struct EntityInfo {
     table: String,
@@ -106,7 +91,7 @@ fn parse_entity(item_struct: &ItemStruct, table: String) -> EntityInfo {
     }
 }
 
-/// Generate the sea-query Iden enum: `{StructName}Iden { Table, Field1, Field2, ... }`
+/// Generate the sea-query Iden enum.
 fn generate_iden_enum(info: &EntityInfo) -> TokenStream {
     let enum_name = syn::Ident::new(
         &format!("{}Iden", info.struct_name),
@@ -148,18 +133,10 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
     let non_pk_count = non_pk_col_names.len();
     let insert_cols = non_pk_col_names.join(", ");
     let non_pk_field_names: Vec<&syn::Ident> = info.columns.iter().map(|(f, _)| f).collect();
-    let non_pk_cols_arr = non_pk_col_names
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
-
-    let __cfg_pg = cfg_pg();
-    let __cfg_my = cfg_my();
-    let __cfg_sq = cfg_sq();
 
     quote! {
         #[allow(unreachable_patterns, unreachable_code, unexpected_cfgs)]
-            impl #struct_name {
+        impl #struct_name {
             /// Find entity by primary key.
             pub async fn find_by_id(
                 pool: &webr::db::DbPool,
@@ -170,99 +147,11 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     #select_cols, #table, #pk_col,
                     pool.placeholder(1),
                 );
-                let __params = vec![format!("{}", id)];
-                webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
+                webr::tracing::debug!(target: "webr::sql", "==> {} | params: [{}]", sql, id);
                 if let Some(__t) = webr::db::try_get_txn() {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => async move {
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .bind(id)
-                                .fetch_optional(webr::db::DbTransaction::as_pg(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(Some(ref __r)) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-                            } else if let Ok(None) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-                            }
-                            result
-                        }.await,
-                        #__cfg_my webr::db::Driver::MySql => async move {
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .bind(id)
-                                .fetch_optional(webr::db::DbTransaction::as_my(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(Some(ref __r)) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-                            } else if let Ok(None) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-                            }
-                            result
-                        }.await,
-                        #__cfg_sq webr::db::Driver::Sqlite => async move {
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .bind(id)
-                                .fetch_optional(webr::db::DbTransaction::as_sq(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(Some(ref __r)) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-                            } else if let Ok(None) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-                            }
-                            result
-                        }.await,
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    __t.fetch_optional(&sql, |q| q.bind(id)).await
                 } else {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => {
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .bind(id)
-                                .fetch_optional(pool.as_pg())
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(Some(ref __r)) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-                            } else if let Ok(None) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-                            }
-                            result
-                        }
-                        #__cfg_my webr::db::Driver::MySql => {
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .bind(id)
-                                .fetch_optional(pool.as_my())
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(Some(ref __r)) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-                            } else if let Ok(None) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-                            }
-                            result
-                        }
-                        #__cfg_sq webr::db::Driver::Sqlite => {
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .bind(id)
-                                .fetch_optional(pool.as_sq())
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(Some(ref __r)) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-                            } else if let Ok(None) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-                            }
-                            result
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    pool.fetch_optional(&sql, |q| q.bind(id)).await
                 }
             }
 
@@ -273,78 +162,9 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                 let sql = format!("SELECT {} FROM {}", #select_cols, #table);
                 webr::tracing::debug!(target: "webr::sql", "==> {}", sql);
                 if let Some(__t) = webr::db::try_get_txn() {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => async move {
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .fetch_all(webr::db::DbTransaction::as_pg(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(ref __r) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-                            }
-                            result
-                        }.await,
-                        #__cfg_my webr::db::Driver::MySql => async move {
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .fetch_all(webr::db::DbTransaction::as_my(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(ref __r) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-                            }
-                            result
-                        }.await,
-                        #__cfg_sq webr::db::Driver::Sqlite => async move {
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .fetch_all(webr::db::DbTransaction::as_sq(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(ref __r) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-                            }
-                            result
-                        }.await,
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    __t.fetch_all(&sql, |q| q).await
                 } else {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => {
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .fetch_all(pool.as_pg())
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(ref __r) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-                            }
-                            result
-                        }
-                        #__cfg_my webr::db::Driver::MySql => {
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .fetch_all(pool.as_my())
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(ref __r) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-                            }
-                            result
-                        }
-                        #__cfg_sq webr::db::Driver::Sqlite => {
-                            let result = webr::db::sqlx::query_as::<_, Self>(&sql)
-                                .fetch_all(pool.as_sq())
-                                .await
-                                .map_err(webr::db::DbError::from);
-                            if let Ok(ref __r) = result {
-                                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-                            }
-                            result
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    pool.fetch_all(&sql, |q| q).await
                 }
             }
 
@@ -353,141 +173,32 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                 &self,
                 pool: &webr::db::DbPool,
             ) -> Result<Self, webr::db::DbError> {
+                let mut placeholders = Vec::new();
+                for i in 1..=#non_pk_count {
+                    placeholders.push(pool.placeholder(i));
+                }
+                let insert_sql = format!(
+                    "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
+                    #table, #insert_cols,
+                    placeholders.join(", "),
+                    #select_cols,
+                );
+                let fetch_sql = format!(
+                    "SELECT {} FROM {} WHERE {} = {}",
+                    #select_cols, #table, #pk_col,
+                    pool.placeholder(1),
+                );
+                webr::tracing::debug!(target: "webr::sql", "==> {} (insert)", insert_sql);
                 if let Some(__t) = webr::db::try_get_txn() {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => async move {
-                            let mut placeholders = Vec::new();
-                            for i in 1..=#non_pk_count {
-                                placeholders.push(pool.placeholder(i));
-                            }
-                            let sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
-                                #table, #insert_cols,
-                                placeholders.join(", "),
-                                #select_cols,
-                            );
-                            let __params: Vec<String> = vec![#( format!("{}", &self.#non_pk_field_names), )*];
-                            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query_as::<_, Self>(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .fetch_one(webr::db::DbTransaction::as_pg(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }.await,
-                        #__cfg_my webr::db::Driver::MySql => async move {
-                            let mut placeholders = Vec::new();
-                            for _ in 0..#non_pk_count {
-                                placeholders.push("?");
-                            }
-                            let sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({})",
-                                #table, #insert_cols,
-                                placeholders.join(", "),
-                            );
-                            let __params: Vec<String> = vec![#( format!("{}", &self.#non_pk_field_names), )*];
-                            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .execute(webr::db::DbTransaction::as_my(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)?;
-                            let mut __inserted = self.clone();
-                            __inserted.#pk = result.last_insert_id() as #pk_type;
-                            Ok(__inserted)
-                        }.await,
-                        #__cfg_sq webr::db::Driver::Sqlite => async move {
-                            let mut placeholders = Vec::new();
-                            for _ in 0..#non_pk_count {
-                                placeholders.push("?");
-                            }
-                            let sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({})",
-                                #table, #insert_cols,
-                                placeholders.join(", "),
-                            );
-                            let __params: Vec<String> = vec![#( format!("{}", &self.#non_pk_field_names), )*];
-                            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-                            let mut __g = __t.lock().await;
-                            let result = webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .execute(webr::db::DbTransaction::as_sq(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)?;
-                            let mut __inserted = self.clone();
-                            __inserted.#pk = result.last_insert_rowid() as #pk_type;
-                            Ok(__inserted)
-                        }.await,
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    __t.insert_fetch(
+                        &insert_sql, &fetch_sql, #pk_col,
+                        |q| q #( .bind(&self.#non_pk_field_names) )*,
+                    ).await
                 } else {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => {
-                            let mut placeholders = Vec::new();
-                            for i in 1..=#non_pk_count {
-                                placeholders.push(pool.placeholder(i));
-                            }
-                            let sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
-                                #table, #insert_cols,
-                                placeholders.join(", "),
-                                #select_cols,
-                            );
-                            let __params: Vec<String> = vec![#( format!("{}", &self.#non_pk_field_names), )*];
-                            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-                            webr::db::sqlx::query_as::<_, Self>(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .fetch_one(pool.as_pg())
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }
-                        #__cfg_my webr::db::Driver::MySql => {
-                            let mut placeholders = Vec::new();
-                            for _ in 0..#non_pk_count {
-                                placeholders.push("?");
-                            }
-                            let sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({})",
-                                #table, #insert_cols,
-                                placeholders.join(", "),
-                            );
-                            let __params: Vec<String> = vec![#( format!("{}", &self.#non_pk_field_names), )*];
-                            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-                            let result = webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .execute(pool.as_my())
-                                .await
-                                .map_err(webr::db::DbError::from)?;
-                            let mut __inserted = self.clone();
-                            __inserted.#pk = result.last_insert_id() as #pk_type;
-                            Ok(__inserted)
-                        }
-                        #__cfg_sq webr::db::Driver::Sqlite => {
-                            let mut placeholders = Vec::new();
-                            for _ in 0..#non_pk_count {
-                                placeholders.push("?");
-                            }
-                            let sql = format!(
-                                "INSERT INTO {} ({}) VALUES ({})",
-                                #table, #insert_cols,
-                                placeholders.join(", "),
-                            );
-                            let __params: Vec<String> = vec![#( format!("{}", &self.#non_pk_field_names), )*];
-                            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-                            let result = webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .execute(pool.as_sq())
-                                .await
-                                .map_err(webr::db::DbError::from)?;
-                            let mut __inserted = self.clone();
-                            __inserted.#pk = result.last_insert_rowid() as #pk_type;
-                            Ok(__inserted)
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    pool.insert_fetch(
+                        &insert_sql, &fetch_sql, #pk_col,
+                        |q| q #( .bind(&self.#non_pk_field_names) )*,
+                    ).await
                 }
             }
 
@@ -496,7 +207,7 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                 &self,
                 pool: &webr::db::DbPool,
             ) -> Result<bool, webr::db::DbError> {
-                let non_pk_cols: &[&str] = &[#(#non_pk_cols_arr),*];
+                let non_pk_cols: &[&str] = &[#(#non_pk_col_names),*];
                 let mut set_parts = Vec::with_capacity(non_pk_cols.len());
                 for (i, col) in non_pk_cols.iter().enumerate() {
                     set_parts.push(format!("{col} = {}", pool.placeholder(i + 1)));
@@ -506,78 +217,17 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     "UPDATE {} SET {} WHERE {} = {pk_ph}",
                     #table, set_parts.join(", "), #pk_col,
                 );
-                let __params: Vec<String> = vec![
-                    #( format!("{}", &self.#non_pk_field_names), )*
-                    format!("{}", &self.#pk),
-                ];
-                webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
+                webr::tracing::debug!(target: "webr::sql", "==> {}", sql);
                 let rows: u64 = if let Some(__t) = webr::db::try_get_txn() {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .bind(&self.#pk)
-                                .execute(webr::db::DbTransaction::as_pg(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                                .map(|r| r.rows_affected())
-                        }.await?,
-                        #__cfg_my webr::db::Driver::MySql => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .bind(&self.#pk)
-                                .execute(webr::db::DbTransaction::as_my(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                                .map(|r| r.rows_affected())
-                        }.await?,
-                        #__cfg_sq webr::db::Driver::Sqlite => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .bind(&self.#pk)
-                                .execute(webr::db::DbTransaction::as_sq(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                                .map(|r| r.rows_affected())
-                        }.await?,
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    __t.execute(&sql, |q| q
+                        #( .bind(&self.#non_pk_field_names) )*
+                        .bind(&self.#pk)
+                    ).await?
                 } else {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => {
-                            webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .bind(&self.#pk)
-                                .execute(pool.as_pg())
-                                .await
-                                .map_err(webr::db::DbError::from)?
-                                .rows_affected()
-                        }
-                        #__cfg_my webr::db::Driver::MySql => {
-                            webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .bind(&self.#pk)
-                                .execute(pool.as_my())
-                                .await
-                                .map_err(webr::db::DbError::from)?
-                                .rows_affected()
-                        }
-                        #__cfg_sq webr::db::Driver::Sqlite => {
-                            webr::db::sqlx::query(&sql)
-                                #( .bind(&self.#non_pk_field_names) )*
-                                .bind(&self.#pk)
-                                .execute(pool.as_sq())
-                                .await
-                                .map_err(webr::db::DbError::from)?
-                                .rows_affected()
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    pool.execute(&sql, |q| q
+                        #( .bind(&self.#non_pk_field_names) )*
+                        .bind(&self.#pk)
+                    ).await?
                 };
                 Ok(rows > 0)
             }
@@ -592,69 +242,11 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     #table, #pk_col,
                     pool.placeholder(1),
                 );
-                let __params = vec![format!("{}", &self.#pk)];
-                webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
+                webr::tracing::debug!(target: "webr::sql", "==> {} | params: [{}]", sql, &self.#pk);
                 let rows: u64 = if let Some(__t) = webr::db::try_get_txn() {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query(&sql)
-                                .bind(&self.#pk)
-                                .execute(webr::db::DbTransaction::as_pg(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                                .map(|r| r.rows_affected())
-                        }.await?,
-                        #__cfg_my webr::db::Driver::MySql => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query(&sql)
-                                .bind(&self.#pk)
-                                .execute(webr::db::DbTransaction::as_my(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                                .map(|r| r.rows_affected())
-                        }.await?,
-                        #__cfg_sq webr::db::Driver::Sqlite => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query(&sql)
-                                .bind(&self.#pk)
-                                .execute(webr::db::DbTransaction::as_sq(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                                .map(|r| r.rows_affected())
-                        }.await?,
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    __t.execute(&sql, |q| q.bind(&self.#pk)).await?
                 } else {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => {
-                            webr::db::sqlx::query(&sql)
-                                .bind(&self.#pk)
-                                .execute(pool.as_pg())
-                                .await
-                                .map_err(webr::db::DbError::from)?
-                                .rows_affected()
-                        }
-                        #__cfg_my webr::db::Driver::MySql => {
-                            webr::db::sqlx::query(&sql)
-                                .bind(&self.#pk)
-                                .execute(pool.as_my())
-                                .await
-                                .map_err(webr::db::DbError::from)?
-                                .rows_affected()
-                        }
-                        #__cfg_sq webr::db::Driver::Sqlite => {
-                            webr::db::sqlx::query(&sql)
-                                .bind(&self.#pk)
-                                .execute(pool.as_sq())
-                                .await
-                                .map_err(webr::db::DbError::from)?
-                                .rows_affected()
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    pool.execute(&sql, |q| q.bind(&self.#pk)).await?
                 };
                 Ok(rows > 0)
             }
@@ -666,54 +258,9 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                 let sql = format!("SELECT COUNT(*) FROM {}", #table);
                 webr::tracing::debug!(target: "webr::sql", "==> {}", sql);
                 if let Some(__t) = webr::db::try_get_txn() {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query_scalar::<_, i64>(&sql)
-                                .fetch_one(webr::db::DbTransaction::as_pg(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }.await,
-                        #__cfg_my webr::db::Driver::MySql => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query_scalar::<_, i64>(&sql)
-                                .fetch_one(webr::db::DbTransaction::as_my(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }.await,
-                        #__cfg_sq webr::db::Driver::Sqlite => async move {
-                            let mut __g = __t.lock().await;
-                            webr::db::sqlx::query_scalar::<_, i64>(&sql)
-                                .fetch_one(webr::db::DbTransaction::as_sq(&mut __g))
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }.await,
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    __t.fetch_scalar::<i64>(&sql, |q| q).await
                 } else {
-                    match pool.driver() {
-                        #__cfg_pg webr::db::Driver::Postgres => {
-                            webr::db::sqlx::query_scalar::<_, i64>(&sql)
-                                .fetch_one(pool.as_pg())
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }
-                        #__cfg_my webr::db::Driver::MySql => {
-                            webr::db::sqlx::query_scalar::<_, i64>(&sql)
-                                .fetch_one(pool.as_my())
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }
-                        #__cfg_sq webr::db::Driver::Sqlite => {
-                            webr::db::sqlx::query_scalar::<_, i64>(&sql)
-                                .fetch_one(pool.as_sq())
-                                .await
-                                .map_err(webr::db::DbError::from)
-                        }
-                        #[allow(unreachable_patterns)]
-                        _ => unreachable!("database driver not supported"),
-                    }
+                    pool.fetch_scalar::<i64>(&sql, |q| q).await
                 }
             }
         }

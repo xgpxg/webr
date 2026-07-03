@@ -70,11 +70,11 @@ impl FileResponse {
     /// 从文件路径读取，自动推断 MIME 类型。
     ///
     /// 文件不存在时返回 404。整个文件读入内存。
-    pub async fn from_path(path: impl Into<PathBuf>) -> Result<Self, crate::error::WebrError> {
+    pub async fn from_path(path: impl Into<PathBuf>) -> Result<Self, crate::error::Error> {
         let path: PathBuf = path.into();
         let data = tokio::fs::read(&path)
             .await
-            .map_err(|_| crate::error::WebrError::Http {
+            .map_err(|_| crate::error::Error::Http {
                 status: StatusCode::NOT_FOUND,
                 message: "File not found".into(),
             })?;
@@ -97,12 +97,12 @@ impl FileResponse {
     /// 文件不存在时返回 404。
     pub async fn from_path_streaming(
         path: impl Into<PathBuf>,
-    ) -> Result<Self, crate::error::WebrError> {
+    ) -> Result<Self, crate::error::Error> {
         let path: PathBuf = path.into();
         let file =
             tokio::fs::File::open(&path)
                 .await
-                .map_err(|_| crate::error::WebrError::Http {
+                .map_err(|_| crate::error::Error::Http {
                     status: StatusCode::NOT_FOUND,
                     message: "File not found".into(),
                 })?;

@@ -4,14 +4,17 @@ pub use webr_core::component::{
 };
 pub use webr_core::config::{ConfigEntry, ConfigLoader, LogConfig, ServerConfig};
 pub use webr_core::context::ApplicationContext;
-pub use webr_core::error::{ValidationFieldError, WebrError, WebrResult};
+pub use webr_core::error::{ValidationFieldError, Error, WebrResult};
 
+#[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 mod db_adapter;
 
+#[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 pub mod db {
     pub use webr_db::{
         DatasourceConfig, DbError, Driver, PoolConfig,
         scope_txn, try_get_txn, DbTransaction, ScopeTxnGuard, TxnInner,
+        QueryBinder, ScalarBinder, ExecutionBinder,
         sqlx, sea_query, sea_query_binder,
     };
     pub use crate::db_adapter::DbPool;
@@ -42,6 +45,7 @@ pub use tracing_subscriber;
 pub use validator;
 
 // Re-export sqlx so that #[entity] / #[sql] generated code can reference `webr::db::sqlx`
+#[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 pub use webr_db::sqlx;
 
 /// Prelude 模块：`use webr::prelude::*` 导入所有常用类型

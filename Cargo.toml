@@ -23,7 +23,7 @@ authors = ["wxg"]
 
 [dependencies]
 webr-core = { version = "0.1.0", path = "crates/webr-core" }
-webr-db = { version = "0.1.0", path = "crates/webr-db" }
+webr-db = { version = "0.1.0", path = "crates/webr-db", optional = true }
 webr-macros = { version = "0.1.0", path = "crates/webr-macros" }
 axum = { version = "0.8", features = ["multipart"] }
 serde = { version = "1", features = ["derive"] }
@@ -36,6 +36,6 @@ toml = "0.8"
 validator = { version = "0.20", features = ["derive"] }
 
 [features]
-mysql = ["webr-db/mysql"]
-postgres = ["webr-db/postgres"]
-sqlite = ["webr-db/sqlite"]
+mysql = ["dep:webr-db", "webr-db/mysql"]
+postgres = ["dep:webr-db", "webr-db/postgres"]
+sqlite = ["dep:webr-db", "webr-db/sqlite"]

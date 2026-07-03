@@ -80,7 +80,7 @@ fn expand_controller_struct(item_struct: ItemStruct) -> TokenStream {
             #[doc(hidden)]
             pub fn __webr_construct(
                 ctx: &::webr::ApplicationContext,
-            ) -> ::std::result::Result<Self, ::webr::WebrError> {
+            ) -> ::std::result::Result<Self, ::webr::Error> {
                 ::std::result::Result::Ok(Self { #(#construct_fields,)* })
             }
 
@@ -186,7 +186,7 @@ fn expand_controller_impl(item_impl: ItemImpl, prefix: Option<String>) -> TokenS
         fn #mount_fn_name(
             ctx: &::webr::ApplicationContext,
             router: &mut ::webr::WebrRouter,
-        ) -> ::std::result::Result<(), ::webr::WebrError> {
+        ) -> ::std::result::Result<(), ::webr::Error> {
             let controller: ::std::sync::Arc<#self_ty> = ctx.resolve_arc()?;
             router.merge_controller(controller);
             ::std::result::Result::Ok(())

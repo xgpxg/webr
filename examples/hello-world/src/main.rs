@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use webr::prelude::*;
-use webr::{Inject, WebrError};
+use webr::{Inject, Error};
 
 #[config(prefix = "app")]
 pub struct AppConfig {
@@ -67,7 +67,7 @@ impl HelloController {
                 name: format!("Item-{id}"),
             }))
         } else {
-            Err(WebrError::Http {
+            Err(Error::Http {
                 status: StatusCode::NOT_FOUND,
                 message: format!("Item {id} not found"),
             })
@@ -107,7 +107,7 @@ pub struct CreateItemRequest {
 }
 
 #[main]
-async fn main(app: &mut AppBuilder) -> Result<(), WebrError> {
+async fn main(app: &mut AppBuilder) -> Result<(), Error> {
     app.unified_response();
     Ok(())
 }

@@ -2,12 +2,16 @@
 
 mod config;
 mod error;
+pub mod executor;
 mod pool;
+mod row;
 mod transaction;
 
 pub use config::{DatasourceConfig, PoolConfig};
 pub use error::DbError;
+pub use executor::{ExecutionBinder, QueryBinder, ScalarBinder};
 pub use pool::{DbPool, Driver};
+pub use row::{Row, Scalar};
 pub use transaction::{scope_txn, try_get_txn, DbTransaction, ScopeTxnGuard, TxnInner};
 
 // Re-export sqlx and sea-query so downstream crates can use them

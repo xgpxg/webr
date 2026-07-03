@@ -74,7 +74,7 @@ pub fn config(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// 为自定义业务错误 enum 生成 HTTP 响应映射。
 ///
 /// 变体必须加 `#[error(status = N)]` 或 `#[error(status = N, message = "...")]`。
-/// 生成 `IntoResponse`（可直接作为返回类型）和 `From<Self> for WebrError`（支持 `?` 转换）。
+/// 生成 `IntoResponse`（可直接作为返回类型）和 `From<Self> for Error`（支持 `?` 转换）。
 #[proc_macro_derive(HttpError, attributes(error))]
 pub fn derive_http_error(item: TokenStream) -> TokenStream {
     error_derive::expand_webr_error(syn::parse_macro_input!(item as syn::DeriveInput)).into()

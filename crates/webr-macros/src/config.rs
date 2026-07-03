@@ -58,7 +58,7 @@ pub fn expand_config(attr: TokenStream, item: TokenStream) -> TokenStream {
                 register: |__webr_toml: &::webr::toml::Value, __webr_ctx: &mut ::webr::ApplicationContext| {
                     let __webr_section = #get_section;
                     let __webr_instance: #struct_name = ::serde::Deserialize::deserialize(__webr_section)
-                        .map_err(|e| ::webr::WebrError::ConfigError(
+                        .map_err(|e| ::webr::Error::ConfigError(
                             ::std::format!("Failed to parse [{}]: {}", #prefix, e)
                         ))?;
                     __webr_ctx.provide(__webr_instance)

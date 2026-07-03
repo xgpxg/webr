@@ -4,15 +4,6 @@ use syn::{FnArg, ImplItemFn, LitStr, Pat, ReturnType, Type};
 
 use crate::sql_parser::{self, ParamRef, SqlSegment};
 
-// cfg attributes for database-specific match arms in generated code.
-const CFG_PG: &str = r#"#[cfg(feature = "postgres")]"#;
-const CFG_MY: &str = r#"#[cfg(feature = "mysql")]"#;
-const CFG_SQ: &str = r#"#[cfg(feature = "sqlite")]"#;
-
-fn cfg_pg() -> TokenStream { CFG_PG.parse().unwrap() }
-fn cfg_my() -> TokenStream { CFG_MY.parse().unwrap() }
-fn cfg_sq() -> TokenStream { CFG_SQ.parse().unwrap() }
-
 pub fn expand_sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     let method: ImplItemFn =
         syn::parse2(item).expect("#[sql] must be applied to a method in an impl block");
@@ -26,7 +17,7 @@ pub fn expand_sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     let method_sig = &method.sig;
     let _method_name = &method_sig.ident;
     let params = extract_method_params(method_sig);
-    let (row_type, fetch_mode) = extract_row_type(&method_sig.output);
+    let (row_type, fetch_mode) = extract_row_type(&method_sig.output, &sql_template);
 
     // Parse the SQL template
     let segments = sql_parser::parse_sql(&sql_template);
@@ -128,11 +119,11 @@ enum FetchMode {
     Optional, // Result<Option<T>, E> → fetch_optional
     One,      // Result<T, E> → fetch_one (single row)
     Execute,  // Result<u64, E> → execute (insert/update/delete)
+    Scalar,   // Result<T, E> where T is scalar → fetch_scalar (e.g. COUNT, SUM)
 }
 
 /// Extract the row type and fetch mode from the method return type.
-/// Supports `Self`, custom structs, and any type implementing `sqlx::FromRow`.
-fn extract_row_type(output: &ReturnType) -> (Type, FetchMode) {
+fn extract_row_type(output: &ReturnType, sql_template: &str) -> (Type, FetchMode) {
     let ReturnType::Type(_, ty) = output else {
         panic!("#[sql] method must have a return type");
     };
@@ -171,17 +162,39 @@ fn extract_row_type(output: &ReturnType) -> (Type, FetchMode) {
         }
     }
 
-    // Result<u64, E> → Execute (insert/update/delete)
-    if let Type::Path(inner_tp) = inner {
-        if let Some(last_seg) = inner_tp.path.segments.last() {
-            if last_seg.ident == "u64" {
-                return (inner.clone(), FetchMode::Execute);
-            }
+    // Scalar types (u64, i32, i64, String, f64, bool, etc.)
+    if is_scalar_type(inner) {
+        let is_select = sql_template.trim().to_uppercase().starts_with("SELECT");
+        if is_select {
+            return (inner.clone(), FetchMode::Scalar);
+        } else {
+            // Non-SELECT with scalar type → only valid for u64 as execute (rows affected)
+            return (inner.clone(), FetchMode::Execute);
         }
     }
 
     // Result<T, E> where T is a custom struct → fetch_one
     (inner.clone(), FetchMode::One)
+}
+
+/// Check if a type is a scalar (primitive) type that should use `fetch_scalar`.
+fn is_scalar_type(ty: &Type) -> bool {
+    if let Type::Path(tp) = ty {
+        if let Some(last_seg) = tp.path.segments.last() {
+            let name = last_seg.ident.to_string();
+            matches!(
+                name.as_str(),
+                "u8" | "u16" | "u32" | "u64"
+                    | "i8" | "i16" | "i32" | "i64"
+                    | "f32" | "f64"
+                    | "String" | "bool"
+            )
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
 
 // ─── Static SQL generation ─────────────────────────────────────────
@@ -192,161 +205,6 @@ fn generate_static_sql(
     row_type: &Type,
     fetch_mode: FetchMode,
 ) -> TokenStream {
-    let mut sql = String::new();
-    let mut ordered_params: Vec<ParamRef> = Vec::new();
-
-    for seg in segments {
-        match seg {
-            SqlSegment::Text(t) => sql.push_str(t),
-            SqlSegment::Param(p) => {
-                ordered_params.push(p.clone());
-                sql.push_str("{}"); // placeholder for format!
-            }
-            _ => {}
-        }
-    }
-
-    // Determine bind expressions for each parameter
-    let bind_exprs: Vec<TokenStream> = ordered_params
-        .iter()
-        .map(|p| resolve_param_bind(p, params, &[]))
-        .collect();
-
-    // Build the final SQL with numbered placeholders
-    let sql_with_placeholders = if bind_exprs.is_empty() {
-        quote! { let sql = #sql.to_string(); }
-    } else {
-        // Replace {} with pool.placeholder(N)
-        let mut sql_parts = sql.split("{}");
-        let first = sql_parts.next().unwrap_or("");
-        let rest: Vec<&str> = sql_parts.collect();
-
-        let mut push_stmts = vec![quote! { __sql.push_str(#first); }];
-        for (i, part) in rest.iter().enumerate() {
-            let idx = i + 1;
-            push_stmts.push(quote! {
-                __sql.push_str(&pool.placeholder(#idx));
-                __sql.push_str(#part);
-            });
-        }
-
-        quote! {
-            let mut __sql = String::new();
-            #(#push_stmts)*
-            let sql = __sql;
-        }
-    };
-
-    // Choose fetch method based on return type
-    let fetch_call = match fetch_mode {
-        FetchMode::Optional => quote! { .fetch_optional },
-        FetchMode::All => quote! { .fetch_all },
-        FetchMode::One => quote! { .fetch_one },
-        FetchMode::Execute => return generate_execute_sql(segments, params),
-    };
-
-    // Build result logging based on return type
-    let result_log = match fetch_mode {
-        FetchMode::Optional => quote! {
-            if let Ok(Some(ref __r)) = result {
-                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-            } else if let Ok(None) = result {
-                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
-            }
-        },
-        FetchMode::All => quote! {
-            if let Ok(ref __r) = result {
-                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
-            }
-        },
-        FetchMode::One => quote! {
-            if let Ok(ref __r) = result {
-                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
-            }
-        },
-        FetchMode::Execute => unreachable!(),
-    };
-
-    let __cfg_pg = cfg_pg();
-    let __cfg_my = cfg_my();
-    let __cfg_sq = cfg_sq();
-
-    quote! {
-        #sql_with_placeholders
-        let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
-        webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-        if let Some(__t) = webr::db::try_get_txn() {
-            match pool.driver() {
-                #__cfg_pg webr::db::Driver::Postgres => async move {
-                    let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
-                        #( .bind(#bind_exprs) )*
-                        #fetch_call(webr::db::DbTransaction::as_pg(&mut __g))
-                        .await
-                        .map_err(webr::db::DbError::from);
-                    #result_log
-                    result
-                }.await,
-                #__cfg_my webr::db::Driver::MySql => async move {
-                    let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
-                        #( .bind(#bind_exprs) )*
-                        #fetch_call(webr::db::DbTransaction::as_my(&mut __g))
-                        .await
-                        .map_err(webr::db::DbError::from);
-                    #result_log
-                    result
-                }.await,
-                #__cfg_sq webr::db::Driver::Sqlite => async move {
-                    let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
-                        #( .bind(#bind_exprs) )*
-                        #fetch_call(webr::db::DbTransaction::as_sq(&mut __g))
-                        .await
-                        .map_err(webr::db::DbError::from);
-                    #result_log
-                    result
-                }.await,
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("database driver not supported"),
-            }
-        } else {
-            match pool.driver() {
-                #__cfg_pg webr::db::Driver::Postgres => {
-                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
-                        #( .bind(#bind_exprs) )*
-                        #fetch_call(pool.as_pg())
-                        .await
-                        .map_err(webr::db::DbError::from);
-                    #result_log
-                    result
-                }
-                #__cfg_my webr::db::Driver::MySql => {
-                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
-                        #( .bind(#bind_exprs) )*
-                        #fetch_call(pool.as_my())
-                        .await
-                        .map_err(webr::db::DbError::from);
-                    #result_log
-                    result
-                }
-                #__cfg_sq webr::db::Driver::Sqlite => {
-                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
-                        #( .bind(#bind_exprs) )*
-                        #fetch_call(pool.as_sq())
-                        .await
-                        .map_err(webr::db::DbError::from);
-                    #result_log
-                    result
-                }
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("database driver not supported"),
-            }
-        }
-    }
-}
-
-fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> TokenStream {
     let mut sql = String::new();
     let mut ordered_params: Vec<ParamRef> = Vec::new();
 
@@ -366,12 +224,13 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
         .map(|p| resolve_param_bind(p, params, &[]))
         .collect();
 
-    let sql_build = if bind_exprs.is_empty() {
+    let sql_with_placeholders = if bind_exprs.is_empty() {
         quote! { let sql = #sql.to_string(); }
     } else {
         let mut sql_parts = sql.split("{}");
         let first = sql_parts.next().unwrap_or("");
         let rest: Vec<&str> = sql_parts.collect();
+
         let mut push_stmts = vec![quote! { __sql.push_str(#first); }];
         for (i, part) in rest.iter().enumerate() {
             let idx = i + 1;
@@ -380,6 +239,7 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                 __sql.push_str(#part);
             });
         }
+
         quote! {
             let mut __sql = String::new();
             #(#push_stmts)*
@@ -387,100 +247,100 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
         }
     };
 
-    let __cfg_pg = cfg_pg();
-    let __cfg_my = cfg_my();
-    let __cfg_sq = cfg_sq();
+    if fetch_mode == FetchMode::Execute {
+        return generate_static_execute_sql(sql_with_placeholders, &bind_exprs);
+    }
+
+    if fetch_mode == FetchMode::Scalar {
+        return generate_static_scalar_sql(sql_with_placeholders, &bind_exprs, row_type);
+    }
+
+    let fetch_method = match fetch_mode {
+        FetchMode::Optional => quote! { fetch_optional },
+        FetchMode::All => quote! { fetch_all },
+        FetchMode::One => quote! { fetch_one },
+        FetchMode::Execute | FetchMode::Scalar => unreachable!(),
+    };
+
+    let result_log = match fetch_mode {
+        FetchMode::Optional => quote! {
+            if let Ok(Some(ref __r)) = result {
+                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
+            } else if let Ok(None) = result {
+                webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
+            }
+        },
+        FetchMode::All => quote! {
+            if let Ok(ref __r) = result {
+                webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
+            }
+        },
+        FetchMode::One => quote! {
+            if let Ok(ref __r) = result {
+                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
+            }
+        },
+        FetchMode::Execute | FetchMode::Scalar => unreachable!(),
+    };
 
     quote! {
-        #sql_build
-        let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
-        webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
-        if let Some(__t) = webr::db::try_get_txn() {
-            match pool.driver() {
-                #__cfg_pg webr::db::Driver::Postgres => async move {
-                    let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query(&sql)
-                        #( .bind(#bind_exprs) )*
-                        .execute(webr::db::DbTransaction::as_pg(&mut __g))
-                        .await
-                        .map(|r| r.rows_affected())
-                        .map_err(webr::db::DbError::from);
-                    if let Ok(ref __rows) = result {
-                        webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
-                    }
-                    result
-                }.await,
-                #__cfg_my webr::db::Driver::MySql => async move {
-                    let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query(&sql)
-                        #( .bind(#bind_exprs) )*
-                        .execute(webr::db::DbTransaction::as_my(&mut __g))
-                        .await
-                        .map(|r| r.rows_affected())
-                        .map_err(webr::db::DbError::from);
-                    if let Ok(ref __rows) = result {
-                        webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
-                    }
-                    result
-                }.await,
-                #__cfg_sq webr::db::Driver::Sqlite => async move {
-                    let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query(&sql)
-                        #( .bind(#bind_exprs) )*
-                        .execute(webr::db::DbTransaction::as_sq(&mut __g))
-                        .await
-                        .map(|r| r.rows_affected())
-                        .map_err(webr::db::DbError::from);
-                    if let Ok(ref __rows) = result {
-                        webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
-                    }
-                    result
-                }.await,
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("database driver not supported"),
-            }
-        } else {
-            match pool.driver() {
-                #__cfg_pg webr::db::Driver::Postgres => {
-                    let result = webr::db::sqlx::query(&sql)
-                        #( .bind(#bind_exprs) )*
-                        .execute(pool.as_pg())
-                        .await
-                        .map(|r| r.rows_affected())
-                        .map_err(webr::db::DbError::from);
-                    if let Ok(ref __rows) = result {
-                        webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
-                    }
-                    result
-                }
-                #__cfg_my webr::db::Driver::MySql => {
-                    let result = webr::db::sqlx::query(&sql)
-                        #( .bind(#bind_exprs) )*
-                        .execute(pool.as_my())
-                        .await
-                        .map(|r| r.rows_affected())
-                        .map_err(webr::db::DbError::from);
-                    if let Ok(ref __rows) = result {
-                        webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
-                    }
-                    result
-                }
-                #__cfg_sq webr::db::Driver::Sqlite => {
-                    let result = webr::db::sqlx::query(&sql)
-                        #( .bind(#bind_exprs) )*
-                        .execute(pool.as_sq())
-                        .await
-                        .map(|r| r.rows_affected())
-                        .map_err(webr::db::DbError::from);
-                    if let Ok(ref __rows) = result {
-                        webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
-                    }
-                    result
-                }
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("database driver not supported"),
-            }
+        #sql_with_placeholders
+        if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+            let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
+            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
         }
+        let result = if let Some(__t) = webr::db::try_get_txn() {
+            __t.#fetch_method::<#row_type>(&sql, |q| q #( .bind(#bind_exprs) )* ).await
+        } else {
+            pool.#fetch_method::<#row_type>(&sql, |q| q #( .bind(#bind_exprs) )* ).await
+        };
+        #result_log
+        result
+    }
+}
+
+fn generate_static_execute_sql(
+    sql_build: TokenStream,
+    bind_exprs: &[TokenStream],
+) -> TokenStream {
+    quote! {
+        #sql_build
+        if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+            let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
+            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
+        }
+        let result: Result<u64, webr::db::DbError> = if let Some(__t) = webr::db::try_get_txn() {
+            __t.execute(&sql, |q| q #( .bind(#bind_exprs) )* ).await
+        } else {
+            pool.execute(&sql, |q| q #( .bind(#bind_exprs) )* ).await
+        };
+        if let Ok(ref __rows) = result {
+            webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
+        }
+        result
+    }
+}
+
+fn generate_static_scalar_sql(
+    sql_build: TokenStream,
+    bind_exprs: &[TokenStream],
+    row_type: &Type,
+) -> TokenStream {
+    quote! {
+        #sql_build
+        if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+            let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
+            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
+        }
+        let result = if let Some(__t) = webr::db::try_get_txn() {
+            __t.fetch_scalar::<#row_type>(&sql, |q| q #( .bind(#bind_exprs) )* ).await
+        } else {
+            pool.fetch_scalar::<#row_type>(&sql, |q| q #( .bind(#bind_exprs) )* ).await
+        };
+        if let Ok(ref __r) = result {
+            webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
+        }
+        result
     }
 }
 
@@ -498,14 +358,14 @@ fn generate_dynamic_sql(
     // Phase 2: chain .bind() calls in same conditional order
     let bind_segments = generate_bind_code(segments, params, &[]);
 
-    let fetch_call = match fetch_mode {
-        FetchMode::Optional => quote! { .fetch_optional },
-        FetchMode::All => quote! { .fetch_all },
-        FetchMode::One => quote! { .fetch_one },
-        FetchMode::Execute => panic!("#[sql] dynamic SQL cannot be used for execute (use a static INSERT/UPDATE/DELETE)"),
+    let fetch_method = match fetch_mode {
+        FetchMode::Optional => quote! { fetch_optional },
+        FetchMode::All => quote! { fetch_all },
+        FetchMode::One => quote! { fetch_one },
+        FetchMode::Execute => panic!("#[sql] dynamic SQL cannot be used for execute (INSERT/UPDATE/DELETE)"),
+        FetchMode::Scalar => panic!("#[sql] dynamic SQL with scalar return type is not yet supported"),
     };
 
-    // Build result logging based on return type
     let result_log = match fetch_mode {
         FetchMode::Optional => quote! {
             if let Ok(Some(ref __r)) = __result {
@@ -524,80 +384,36 @@ fn generate_dynamic_sql(
                 webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
             }
         },
-        FetchMode::Execute => unreachable!(),
+        FetchMode::Execute | FetchMode::Scalar => unreachable!(),
     };
 
-    let __cfg_pg = cfg_pg();
-    let __cfg_my = cfg_my();
-    let __cfg_sq = cfg_sq();
-
     quote! {
-        // Phase 1: build the complete SQL string and collect params
+        // Phase 1: build the complete SQL string
         let mut __sql = String::new();
-        let mut __params: Vec<String> = Vec::new();
         let mut __idx: usize = 0;
         #sql_segments
-        #param_segments
 
-        webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", __sql, __params);
+        if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+            let mut __params: Vec<String> = Vec::new();
+            #param_segments
+            webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", __sql, __params);
+        }
 
+        // Phase 2: build query, bind, and execute
         if let Some(__t) = webr::db::try_get_txn() {
-            // Phase 2 (txn): build query and chain .bind(), execute on txn connection
-            match pool.driver() {
-                #__cfg_pg webr::db::Driver::Postgres => async move {
-                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
-                    #bind_segments
-                    let mut __g = __t.lock().await;
-                    let __result = __query #fetch_call(webr::db::DbTransaction::as_pg(&mut __g)).await.map_err(webr::db::DbError::from);
-                    #result_log
-                    __result
-                }.await,
-                #__cfg_my webr::db::Driver::MySql => async move {
-                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
-                    #bind_segments
-                    let mut __g = __t.lock().await;
-                    let __result = __query #fetch_call(webr::db::DbTransaction::as_my(&mut __g)).await.map_err(webr::db::DbError::from);
-                    #result_log
-                    __result
-                }.await,
-                #__cfg_sq webr::db::Driver::Sqlite => async move {
-                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
-                    #bind_segments
-                    let mut __g = __t.lock().await;
-                    let __result = __query #fetch_call(webr::db::DbTransaction::as_sq(&mut __g)).await.map_err(webr::db::DbError::from);
-                    #result_log
-                    __result
-                }.await,
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("database driver not supported"),
-            }
+            let __result = __t.#fetch_method::<#row_type>(&__sql, |mut q| {
+                #bind_segments
+                q
+            }).await;
+            #result_log
+            __result
         } else {
-            // Phase 2 (pool): build query and chain .bind(), execute on pool
-            match pool.driver() {
-                #__cfg_pg webr::db::Driver::Postgres => {
-                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
-                    #bind_segments
-                    let __result = __query #fetch_call(pool.as_pg()).await.map_err(webr::db::DbError::from);
-                    #result_log
-                    __result
-                }
-                #__cfg_my webr::db::Driver::MySql => {
-                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
-                    #bind_segments
-                    let __result = __query #fetch_call(pool.as_my()).await.map_err(webr::db::DbError::from);
-                    #result_log
-                    __result
-                }
-                #__cfg_sq webr::db::Driver::Sqlite => {
-                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
-                    #bind_segments
-                    let __result = __query #fetch_call(pool.as_sq()).await.map_err(webr::db::DbError::from);
-                    #result_log
-                    __result
-                }
-                #[allow(unreachable_patterns)]
-                _ => unreachable!("database driver not supported"),
-            }
+            let __result = pool.#fetch_method::<#row_type>(&__sql, |mut q| {
+                #bind_segments
+                q
+            }).await;
+            #result_log
+            __result
         }
     }
 }
@@ -618,7 +434,6 @@ fn generate_single_segment(segment: &SqlSegment, params: &[MethodParam], foreach
                 if t.is_empty() {
                     quote! {}
                 } else {
-                    // Preserve a single space to avoid merging adjacent SQL clauses
                     quote! { __sql.push_str(" "); }
                 }
             } else {
@@ -769,7 +584,6 @@ fn generate_single_segment(segment: &SqlSegment, params: &[MethodParam], foreach
             quote! {
                 let mut __trim_sql = String::new();
                 {
-                    // Redirect __sql to __trim_sql temporarily
                     let mut __sql = String::new();
                     #body_code
                     __trim_sql = __sql;
@@ -896,10 +710,6 @@ fn generate_set_inner(segments: &[SqlSegment], params: &[MethodParam], foreach_i
 }
 
 // ─── Phase 2: Bind code generation ──────────────────────────────────
-//
-// Generates `.bind()` calls that follow the EXACT same conditional control
-// flow as the SQL-building phase, ensuring bind order matches placeholder
-// order.  No SQL string manipulation here — only `__query = __query.bind(...)`.
 
 fn generate_bind_code(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
     let mut stmts = Vec::new();
@@ -913,7 +723,7 @@ fn generate_single_bind(segment: &SqlSegment, params: &[MethodParam], foreach_it
     match segment {
         SqlSegment::Param(p) => {
             let bind = resolve_param_bind(p, params, foreach_items);
-            quote! { __query = __query.bind(#bind); }
+            quote! { q = q.bind(#bind); }
         }
         SqlSegment::If { test, body } => {
             let test_ident = syn::Ident::new(test, proc_macro2::Span::call_site());
@@ -966,9 +776,6 @@ fn generate_single_bind(segment: &SqlSegment, params: &[MethodParam], foreach_it
 }
 
 // ─── Phase 1.5: Parameter collection code generation ────────────────
-//
-// Generates code to collect parameter values into __params vector for logging.
-// Follows the same conditional control flow as SQL building and bind generation.
 
 fn generate_param_collect_code(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
     let mut stmts = Vec::new();
@@ -982,7 +789,6 @@ fn generate_single_param_collect(segment: &SqlSegment, params: &[MethodParam], f
     match segment {
         SqlSegment::Param(p) => {
             let param_expr = resolve_param_bind(p, params, foreach_items);
-            // Use debug format to handle Option types and other types
             quote! { __params.push(format!("{:?}", &#param_expr)); }
         }
         SqlSegment::If { test, body } => {
@@ -1039,23 +845,19 @@ fn generate_single_param_collect(segment: &SqlSegment, params: &[MethodParam], f
 
 /// Generate a bind expression for a parameter reference.
 fn resolve_param_bind(param: &ParamRef, method_params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
-    // Check if this is a foreach loop variable
     if param.path.len() == 1 && foreach_items.contains(&param.path[0]) {
         let ident = syn::Ident::new(&param.path[0], proc_macro2::Span::call_site());
         return quote! { #ident };
     }
 
     if param.path.len() == 1 {
-        // Simple: #{name} → could be direct param or struct field
         let name = &param.path[0];
         let direct_param = method_params.iter().find(|p| p.name == *name);
 
         if direct_param.is_some() {
-            // Direct parameter match
             let ident = syn::Ident::new(name, proc_macro2::Span::call_site());
             quote! { &#ident }
         } else {
-            // Try to find as field on the first non-Option, non-collection struct param
             let struct_param = method_params
                 .iter()
                 .find(|p| !p.is_option && !p.is_collection && p.name != "pool");
@@ -1069,7 +871,6 @@ fn resolve_param_bind(param: &ParamRef, method_params: &[MethodParam], foreach_i
             }
         }
     } else {
-        // Dotted: #{obj.field}
         let obj = syn::Ident::new(&param.path[0], proc_macro2::Span::call_site());
         let field = syn::Ident::new(&param.path[1], proc_macro2::Span::call_site());
         quote! { &#obj.#field }

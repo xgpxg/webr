@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::error::WebrError;
+use crate::error::Error;
 
 /// 服务器配置，对应 `[server]` 配置节
 #[derive(Debug, Clone, Deserialize)]
@@ -64,7 +64,7 @@ impl Default for LogConfig {
 pub struct ConfigEntry {
     /// 从 toml 根节点解析配置类型并注册到 IoC 容器
     pub register:
-        fn(&toml::Value, &mut crate::context::ApplicationContext) -> Result<(), WebrError>,
+        fn(&toml::Value, &mut crate::context::ApplicationContext) -> Result<(), Error>,
 }
 
 inventory::collect!(ConfigEntry);
@@ -87,7 +87,7 @@ pub struct ConfigLoader {
 
 impl ConfigLoader {
     /// 按优先级加载配置源，返回 `ConfigLoader` 实例
-    pub fn load() -> Result<Self, WebrError> {
+    pub fn load() -> Result<Self, Error> {
         // 加载 .env 文件（忽略不存在的错误）
         let _ = dotenvy::dotenv();
 
@@ -140,14 +140,14 @@ impl ConfigLoader {
     }
 
     /// 将指定配置节反序列化为类型 `T`
-    pub fn get<T: for<'de> Deserialize<'de>>(&self, section: &str) -> Result<T, WebrError> {
+    pub fn get<T: for<'de> Deserialize<'de>>(&self, section: &str) -> Result<T, Error> {
         let val = self
             .values
             .get(section)
             .cloned()
             .unwrap_or_else(|| toml::Value::Table(toml::Table::new()));
         T::deserialize(val)
-            .map_err(|e| WebrError::ConfigError(format!("Failed to parse [{section}]: {e}")))
+            .map_err(|e| Error::ConfigError(format!("Failed to parse [{section}]: {e}")))
     }
 
     /// 返回原始 toml 值，供 `#[config]` 宏生成的代码使用
@@ -162,19 +162,19 @@ impl ConfigLoader {
 }
 
 /// 读取 TOML 文件，文件不存在返回 `None`
-fn read_toml_file(path: &str) -> Result<Option<toml::Value>, WebrError> {
+fn read_toml_file(path: &str) -> Result<Option<toml::Value>, Error> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
         }
         Err(e) => {
-            return Err(WebrError::ConfigError(format!("Cannot read {path}: {e}")));
+            return Err(Error::ConfigError(format!("Cannot read {path}: {e}")));
         }
     };
     let val = content
         .parse::<toml::Value>()
-        .map_err(|e| WebrError::ConfigError(format!("Invalid TOML in {path}: {e}")))?;
+        .map_err(|e| Error::ConfigError(format!("Invalid TOML in {path}: {e}")))?;
     Ok(Some(val))
 }
 

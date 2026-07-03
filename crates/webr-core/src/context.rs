@@ -3,13 +3,13 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use crate::component::{Component, ComponentRegistration};
-use crate::error::WebrError;
+use crate::error::Error;
 use crate::inject::Inject;
 
 /// 组件工厂函数：接收容器引用以解析依赖，返回类型擦除的组件实例。
 /// 使用 `FnOnce` 保证每个工厂在 `build()` 阶段仅被消费一次。
 pub(crate) type FactoryFn =
-    Box<dyn FnOnce(&ApplicationContext) -> Result<Box<dyn Any + Send + Sync>, WebrError>>;
+    Box<dyn FnOnce(&ApplicationContext) -> Result<Box<dyn Any + Send + Sync>, Error>>;
 
 /// IoC 容器，管理所有组件的生命周期。
 ///
@@ -62,10 +62,10 @@ impl ApplicationContext {
 
     /// 直接注册一个已构建的实例，跳过工厂构建流程。
     /// 适用于框架内部手动注入的对象（如应用配置）。
-    pub fn provide<T: Component>(&mut self, instance: T) -> Result<(), WebrError> {
+    pub fn provide<T: Component>(&mut self, instance: T) -> Result<(), Error> {
         let type_id = TypeId::of::<T>();
         if self.instances.contains_key(&type_id) {
-            return Err(WebrError::DuplicateComponent(T::component_name()));
+            return Err(Error::DuplicateComponent(T::component_name()));
         }
         self.names.insert(type_id, T::component_name());
         self.instances.insert(type_id, Arc::new(instance));
@@ -77,7 +77,7 @@ impl ApplicationContext {
     /// 构建所有已注册的组件。
     /// 先执行拓扑排序，再按顺序消费工厂函数完成实例化。
     /// 已通过 [`provide`](Self::provide) 注册的实例会被跳过。
-    pub fn build(&mut self) -> Result<(), WebrError> {
+    pub fn build(&mut self) -> Result<(), Error> {
         if self.built {
             return Ok(());
         }
@@ -92,7 +92,7 @@ impl ApplicationContext {
             let factory = self
                 .factories
                 .remove(&type_id)
-                .ok_or_else(|| WebrError::Internal("Missing factory during build".into()))?;
+                .ok_or_else(|| Error::Internal("Missing factory during build".into()))?;
 
             let instance = factory(self)?;
             self.instances.insert(type_id, Arc::from(instance));
@@ -106,23 +106,23 @@ impl ApplicationContext {
 
     /// 解析组件并返回 `Inject<T>` 智能指针包装。
     /// 由 `#[component]` 宏生成的构造函数在 `build()` 阶段调用。
-    pub fn resolve<T: Component>(&self) -> Result<Inject<T>, WebrError> {
+    pub fn resolve<T: Component>(&self) -> Result<Inject<T>, Error> {
         let type_id = TypeId::of::<T>();
         let arc_any = self
             .instances
             .get(&type_id)
-            .ok_or(WebrError::ComponentNotFound(T::component_name()))?;
+            .ok_or(Error::ComponentNotFound(T::component_name()))?;
 
         let arc_t: Arc<T> = arc_any
             .clone()
             .downcast::<T>()
-            .map_err(|_| WebrError::DowncastFailed(T::component_name()))?;
+            .map_err(|_| Error::DowncastFailed(T::component_name()))?;
 
         Ok(Inject::new(arc_t))
     }
 
     /// 解析组件并返回 `Arc<T>`，供框架内部使用（如控制器挂载路由）。
-    pub fn resolve_arc<T: Component>(&self) -> Result<Arc<T>, WebrError> {
+    pub fn resolve_arc<T: Component>(&self) -> Result<Arc<T>, Error> {
         let inject = self.resolve::<T>()?;
         Ok(inject.arc())
     }
@@ -131,7 +131,7 @@ impl ApplicationContext {
 
     /// Kahn 算法拓扑排序：根据 `dep_graph` 计算组件构建顺序，
     /// 入度为 0 的节点（无依赖）优先输出。若存在环则返回错误。
-    fn topological_sort(&self) -> Result<Vec<TypeId>, WebrError> {
+    fn topological_sort(&self) -> Result<Vec<TypeId>, Error> {
         let mut in_degree: HashMap<TypeId, usize> = HashMap::new();
         let mut reverse_adj: HashMap<TypeId, Vec<TypeId>> = HashMap::new();
 
@@ -179,7 +179,7 @@ impl ApplicationContext {
 
         // 排序结果少于节点数，说明存在环
         if sorted.len() != in_degree.len() {
-            return Err(WebrError::CircularDependency(
+            return Err(Error::CircularDependency(
                 "Dependency cycle detected".into(),
             ));
         }

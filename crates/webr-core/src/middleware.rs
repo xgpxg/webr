@@ -46,7 +46,7 @@ use futures_util::FutureExt;
 ///
 /// ```rust
 /// #[webr::main]
-/// async fn main(app: &mut webr::AppBuilder) -> Result<(), WebrError> {
+/// async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
 ///     // 全局中间件：对所有路由生效
 ///     app.middleware(LoggerMiddleware);
 ///     app.middleware(PanicRecovery);

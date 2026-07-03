@@ -51,7 +51,7 @@ greeting = "Hello from WebR!"
 
 ```rust
 use webr::prelude::*;
-use webr::{Inject, WebrError};
+use webr::{Inject, Error};
 
 // ── 配置 ───────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ impl HelloController {
 // ── 启动入口 ───────────────────────────────────────────
 
 #[webr::main]
-async fn main(app: &mut webr::AppBuilder) -> Result<(), WebrError> {
+async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
     app.unified_response();
     Ok(())
 }
@@ -142,7 +142,7 @@ pub struct AppConfig {
 
 ```rust
 #[webr::main]
-async fn main(app: &mut webr::AppBuilder) -> Result<(), WebrError> {
+async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
     // 全局中间件
     app.middleware(PanicRecovery);
     app.middleware(LoggerMiddleware);

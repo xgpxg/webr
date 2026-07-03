@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::component::ComponentEntry;
 use crate::config::{ConfigEntry, ConfigLoader};
 use crate::context::ApplicationContext;
-use crate::error::WebrError;
+use crate::error::Error;
 use crate::middleware::{Middleware, Next, ScopedMiddleware, UnifiedResponse};
 use crate::router::WebrRouter;
 
@@ -114,7 +114,7 @@ impl AppBuilder {
     pub fn provide<T: crate::component::Component>(
         &mut self,
         instance: T,
-    ) -> Result<(), WebrError> {
+    ) -> Result<(), Error> {
         self.context.provide(instance)
     }
 
@@ -155,7 +155,7 @@ impl AppBuilder {
     /// 构建应用：扫描组件 → 拓扑排序实例化 → 挂载路由 → 打印路由表。
     ///
     /// 幂等：重复调用无副作用，[`run`](Self::run) 会自动调用。
-    pub fn build(&mut self) -> Result<(), WebrError> {
+    pub fn build(&mut self) -> Result<(), Error> {
         if self.built {
             return Ok(());
         }
@@ -221,7 +221,7 @@ impl AppBuilder {
     }
 
     /// 启动 HTTP 服务（内部自动调用 [`build`](Self::build)）。
-    pub async fn run(mut self) -> Result<(), WebrError> {
+    pub async fn run(mut self) -> Result<(), Error> {
         self.build()?;
 
         let Self {
@@ -240,7 +240,7 @@ impl AppBuilder {
         let addr = format!("{host}:{port}");
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
-            .map_err(|e| WebrError::Internal(format!("Failed to bind {addr}: {e}")))?;
+            .map_err(|e| Error::Internal(format!("Failed to bind {addr}: {e}")))?;
 
         tracing::info!("WebR started on http://{}", addr);
 
@@ -251,7 +251,7 @@ impl AppBuilder {
                 tracing::info!("Shutdown signal received, draining connections...");
             })
             .await
-            .map_err(|e| WebrError::Internal(format!("Server error: {e}")))?;
+            .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
 
         tracing::info!("WebR stopped gracefully.");
         Ok(())

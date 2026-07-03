@@ -4,7 +4,7 @@ use serde::Serialize;
 
 /// WebR 框架错误类型
 #[derive(Debug)]
-pub enum WebrError {
+pub enum Error {
     /// 组件重复注册
     DuplicateComponent(&'static str),
     /// 组件未找到
@@ -32,7 +32,7 @@ pub struct ValidationFieldError {
     pub message: String,
 }
 
-impl std::fmt::Display for WebrError {
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::DuplicateComponent(name) => write!(f, "Component '{name}' already registered"),
@@ -53,7 +53,7 @@ impl std::fmt::Display for WebrError {
     }
 }
 
-impl std::error::Error for WebrError {}
+impl std::error::Error for Error {}
 
 /// 通用错误响应体
 #[derive(Serialize)]
@@ -75,8 +75,8 @@ struct ValidationBody {
     errors: Vec<ValidationFieldError>,
 }
 
-/// 实现 `IntoResponse`，使 `Result<T, WebrError>` 可直接作为 axum handler 返回值
-impl IntoResponse for WebrError {
+/// 实现 `IntoResponse`，使 `Result<T, Error>` 可直接作为 axum handler 返回值
+impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         // 校验错误：422 + 字段错误数组
         if let Self::Validation(errors) = self {
@@ -124,10 +124,10 @@ impl IntoResponse for WebrError {
 }
 
 /// WebR 统一 Result 别名
-pub type WebrResult<T> = Result<T, WebrError>;
+pub type WebrResult<T> = Result<T, Error>;
 
-/// 将 `validator::ValidationErrors` 转换为 `WebrError::Validation`
-impl From<validator::ValidationErrors> for WebrError {
+/// 将 `validator::ValidationErrors` 转换为 `Error::Validation`
+impl From<validator::ValidationErrors> for Error {
     fn from(errors: validator::ValidationErrors) -> Self {
         let field_errors = errors
             .field_errors()

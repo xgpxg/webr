@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use crate::context::{ApplicationContext, FactoryFn};
-use crate::error::WebrError;
+use crate::error::Error;
 use std::any::Any;
 
 /// 所有托管组件必须实现的 trait，由 #[controller] / #[service] 宏自动 derive
@@ -24,7 +24,7 @@ pub struct ComponentRegistration {
 }
 
 /// 路由挂载函数类型
-pub type MountFn = fn(&ApplicationContext, &mut crate::router::WebrRouter) -> Result<(), WebrError>;
+pub type MountFn = fn(&ApplicationContext, &mut crate::router::WebrRouter) -> Result<(), Error>;
 
 /// 路由描述符：(HTTP方法, 路径, 控制器名)
 pub type RouteDescriptor = (&'static str, &'static str, &'static str);

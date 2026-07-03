@@ -1,15 +1,15 @@
-use crate::error::WebrError;
+use crate::error::Error;
 use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use validator::Validate;
 
-/// 提取并校验：将 axum 提取错误转为 `WebrError::Http`，然后执行 `Validate`
+/// 提取并校验：将 axum 提取错误转为 `Error::Http`，然后执行 `Validate`
 fn extract_and_validate<T: Validate>(
     value: Result<T, impl std::fmt::Display>,
     kind: &'static str,
-) -> Result<T, WebrError> {
-    let value = value.map_err(|e| WebrError::Http {
+) -> Result<T, Error> {
+    let value = value.map_err(|e| Error::Http {
         status: StatusCode::BAD_REQUEST,
         message: format!("Invalid {kind}: {e}"),
     })?;
@@ -39,7 +39,7 @@ where
     T: DeserializeOwned + Send,
     S: Send + Sync,
 {
-    type Rejection = WebrError;
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
@@ -47,7 +47,7 @@ where
     ) -> Result<Self, Self::Rejection> {
         let axum_path = axum::extract::Path::<T>::from_request_parts(parts, state)
             .await
-            .map_err(|e| WebrError::Http {
+            .map_err(|e| Error::Http {
                 status: StatusCode::BAD_REQUEST,
                 message: format!("Invalid path parameter: {e}"),
             })?;
@@ -80,7 +80,7 @@ where
     T: DeserializeOwned + Validate + Send,
     S: Send + Sync,
 {
-    type Rejection = WebrError;
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
@@ -121,7 +121,7 @@ where
     T: DeserializeOwned + Validate,
     S: Send + Sync,
 {
-    type Rejection = WebrError;
+    type Rejection = Error;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         extract_and_validate(
@@ -182,7 +182,7 @@ where
     T: DeserializeOwned + Send,
     S: Send + Sync,
 {
-    type Rejection = WebrError;
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
@@ -199,11 +199,11 @@ where
             })
             .collect();
 
-        let value = T::deserialize(serde_json::to_value(&map).map_err(|e| WebrError::Http {
+        let value = T::deserialize(serde_json::to_value(&map).map_err(|e| Error::Http {
             status: StatusCode::BAD_REQUEST,
             message: format!("Invalid header: {e}"),
         })?)
-        .map_err(|e| WebrError::Http {
+        .map_err(|e| Error::Http {
             status: StatusCode::BAD_REQUEST,
             message: format!("Invalid header: {e}"),
         })?;
@@ -270,7 +270,7 @@ where
     T: DeserializeOwned + Validate,
     S: Send + Sync,
 {
-    type Rejection = WebrError;
+    type Rejection = Error;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
         extract_and_validate(

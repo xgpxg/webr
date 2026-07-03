@@ -62,7 +62,7 @@ pub fn expand_component(item: TokenStream) -> TokenStream {
             #[doc(hidden)]
             pub fn __webr_construct(
                 ctx: &::webr::ApplicationContext,
-            ) -> ::std::result::Result<Self, ::webr::WebrError> {
+            ) -> ::std::result::Result<Self, ::webr::Error> {
                 ::std::result::Result::Ok(Self { #(#construct_fields,)* })
             }
 

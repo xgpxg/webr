@@ -22,10 +22,10 @@ pub enum Driver {
 ///
 /// Wraps sqlx connection pools behind a single type.
 pub struct DbPool {
-    inner: PoolInner,
+    pub(crate) inner: PoolInner,
 }
 
-enum PoolInner {
+pub(crate) enum PoolInner {
     #[cfg(feature = "postgres")]
     Postgres(sqlx::PgPool),
     #[cfg(feature = "mysql")]

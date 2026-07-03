@@ -2,15 +2,15 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, LitInt, LitStr};
 
-/// 展开 #[derive(WebrError)]
+/// 展开 #[derive(HttpError)]
 ///
 /// 为 enum 生成：
 /// 1. `IntoResponse` —— 可直接作为 handler 返回类型
-/// 2. `From<Self> for ::webr::WebrError` —— 支持 `?` 转换到 WebrResult
+/// 2. `From<Self> for ::webr::Error` —— 支持 `?` 转换到 WebrResult
 ///
 /// 用法：
 /// ```ignore
-/// #[derive(Debug, WebrError)]
+/// #[derive(Debug, HttpError)]
 /// pub enum UserError {
 ///     #[error(status = 404, message = "User not found")]
 ///     NotFound(i64),
@@ -22,7 +22,7 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
     let name = &input.ident;
 
     let Data::Enum(data_enum) = &input.data else {
-        return syn::Error::new_spanned(&input, "WebrError can only be derived for enums")
+        return syn::Error::new_spanned(&input, "HttpError can only be derived for enums")
             .to_compile_error();
     };
 
@@ -57,7 +57,7 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
         });
 
         from_arms.push(quote! {
-            #pattern_name => ::webr::WebrError::Http {
+            #pattern_name => ::webr::Error::Http {
                 status: ::webr::axum::http::StatusCode::from_u16(#status)
                     .unwrap_or(::webr::axum::http::StatusCode::INTERNAL_SERVER_ERROR),
                 message: #message.to_string(),
@@ -82,7 +82,7 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
             }
         }
 
-        impl ::std::convert::From<#name> for ::webr::WebrError {
+        impl ::std::convert::From<#name> for ::webr::Error {
             fn from(err: #name) -> Self {
                 match err {
                     #(#from_arms)*
