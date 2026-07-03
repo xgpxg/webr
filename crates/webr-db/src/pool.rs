@@ -88,9 +88,7 @@ impl DbPool {
                     inner: PoolInner::Sqlite(sq_pool),
                 })
             }
-            other => Err(DbError::Config(format!(
-                "unsupported driver '{other}'"
-            ))),
+            other => Err(DbError::Config(format!("unsupported driver '{other}'"))),
         }
     }
 

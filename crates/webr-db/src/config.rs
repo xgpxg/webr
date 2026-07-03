@@ -41,9 +41,15 @@ impl Default for PoolConfig {
     }
 }
 
-fn default_max_connections() -> u32 { 10 }
-fn default_connect_timeout() -> u64 { 30 }
-fn default_idle_timeout() -> u64 { 600 }
+fn default_max_connections() -> u32 {
+    10
+}
+fn default_connect_timeout() -> u64 {
+    30
+}
+fn default_idle_timeout() -> u64 {
+    600
+}
 
 impl DatasourceConfig {
     /// Build the connection URL from individual fields if `url` is not set.
@@ -70,12 +76,10 @@ impl DatasourceConfig {
                 Ok(format!("mysql://{user}:{pass}@{host}:{port}/{database}"))
             }
             #[cfg(feature = "sqlite")]
-            "sqlite" => {
-                Ok(format!("sqlite://{database}"))
-            }
-            other => Err(crate::DbError::Config(
-                format!("unsupported driver '{other}'"),
-            )),
+            "sqlite" => Ok(format!("sqlite://{database}")),
+            other => Err(crate::DbError::Config(format!(
+                "unsupported driver '{other}'"
+            ))),
         }
     }
 }

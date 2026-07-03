@@ -24,7 +24,7 @@ impl<T> Row for T where
         + 'static
         + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
         + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>,
+        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
 {
 }
 
@@ -44,7 +44,7 @@ impl<T> Row for T where
         + Unpin
         + 'static
         + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>,
+        + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
 {
 }
 
@@ -64,7 +64,7 @@ impl<T> Row for T where
         + Unpin
         + 'static
         + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>,
+        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
 {
 }
 
@@ -84,43 +84,28 @@ impl<T> Row for T where
         + Unpin
         + 'static
         + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>,
+        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
 {
 }
 
 // ── postgres only ────────────────────────────────────────────────
 #[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
-pub trait Row:
-    Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-{
-}
+pub trait Row: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {}
 #[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
-impl<T> Row for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>,
-{
-}
+impl<T> Row for T where T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {}
 
 // ── mysql only ─────────────────────────────────────────────────────
 #[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
-pub trait Row:
-    Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-{
-}
+pub trait Row: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> {}
 #[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
-impl<T> Row for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>,
-{
-}
+impl<T> Row for T where T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> {}
 
 // ── sqlite only ─────────────────────────────────────────────────────
 #[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
-pub trait Row:
-    Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
-}
+pub trait Row: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> {}
 #[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
 impl<T> Row for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>,
+    T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
 {
 }
 
@@ -153,7 +138,7 @@ impl<T> Scalar for T where
         + for<'r> sqlx::Decode<'r, sqlx::MySql>
         + sqlx::Type<sqlx::MySql>
         + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-        + sqlx::Type<sqlx::Sqlite>,
+        + sqlx::Type<sqlx::Sqlite>
 {
 }
 
@@ -177,7 +162,7 @@ impl<T> Scalar for T where
         + for<'r> sqlx::Decode<'r, sqlx::Postgres>
         + sqlx::Type<sqlx::Postgres>
         + for<'r> sqlx::Decode<'r, sqlx::MySql>
-        + sqlx::Type<sqlx::MySql>,
+        + sqlx::Type<sqlx::MySql>
 {
 }
 
@@ -201,7 +186,7 @@ impl<T> Scalar for T where
         + for<'r> sqlx::Decode<'r, sqlx::Postgres>
         + sqlx::Type<sqlx::Postgres>
         + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-        + sqlx::Type<sqlx::Sqlite>,
+        + sqlx::Type<sqlx::Sqlite>
 {
 }
 
@@ -225,7 +210,7 @@ impl<T> Scalar for T where
         + for<'r> sqlx::Decode<'r, sqlx::MySql>
         + sqlx::Type<sqlx::MySql>
         + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-        + sqlx::Type<sqlx::Sqlite>,
+        + sqlx::Type<sqlx::Sqlite>
 {
 }
 
@@ -237,7 +222,11 @@ pub trait Scalar:
 }
 #[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
 impl<T> Scalar for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>,
+    T: Send
+        + Unpin
+        + 'static
+        + for<'r> sqlx::Decode<'r, sqlx::Postgres>
+        + sqlx::Type<sqlx::Postgres>
 {
 }
 
@@ -249,7 +238,7 @@ pub trait Scalar:
 }
 #[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
 impl<T> Scalar for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>,
+    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>
 {
 }
 
@@ -261,6 +250,6 @@ pub trait Scalar:
 }
 #[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
 impl<T> Scalar for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>,
+    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>
 {
 }

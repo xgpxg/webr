@@ -252,17 +252,11 @@ impl DbPool {
     pub fn query_exec<'q>(&'q self, sql: &'q str) -> ExecutionBinder<'q> {
         match &self.inner {
             #[cfg(feature = "postgres")]
-            crate::pool::PoolInner::Postgres(_) => {
-                ExecutionBinder::Postgres(sqlx::query(sql))
-            }
+            crate::pool::PoolInner::Postgres(_) => ExecutionBinder::Postgres(sqlx::query(sql)),
             #[cfg(feature = "mysql")]
-            crate::pool::PoolInner::MySql(_) => {
-                ExecutionBinder::MySql(sqlx::query(sql))
-            }
+            crate::pool::PoolInner::MySql(_) => ExecutionBinder::MySql(sqlx::query(sql)),
             #[cfg(feature = "sqlite")]
-            crate::pool::PoolInner::Sqlite(_) => {
-                ExecutionBinder::Sqlite(sqlx::query(sql))
-            }
+            crate::pool::PoolInner::Sqlite(_) => ExecutionBinder::Sqlite(sqlx::query(sql)),
             #[allow(unreachable_patterns)]
             _ => unreachable!("no database feature enabled"),
         }
@@ -305,11 +299,17 @@ impl DbPool {
         Box::pin(async move {
             match binder {
                 #[cfg(feature = "postgres")]
-                QueryBinder::Postgres(q) => q.fetch_optional(self.as_pg()).await.map_err(DbError::Sqlx),
+                QueryBinder::Postgres(q) => {
+                    q.fetch_optional(self.as_pg()).await.map_err(DbError::Sqlx)
+                }
                 #[cfg(feature = "mysql")]
-                QueryBinder::MySql(q) => q.fetch_optional(self.as_my()).await.map_err(DbError::Sqlx),
+                QueryBinder::MySql(q) => {
+                    q.fetch_optional(self.as_my()).await.map_err(DbError::Sqlx)
+                }
                 #[cfg(feature = "sqlite")]
-                QueryBinder::Sqlite(q) => q.fetch_optional(self.as_sq()).await.map_err(DbError::Sqlx),
+                QueryBinder::Sqlite(q) => {
+                    q.fetch_optional(self.as_sq()).await.map_err(DbError::Sqlx)
+                }
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -350,17 +350,23 @@ impl DbPool {
         Box::pin(async move {
             match binder {
                 #[cfg(feature = "postgres")]
-                ExecutionBinder::Postgres(q) => {
-                    q.execute(self.as_pg()).await.map(|r| r.rows_affected()).map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::Postgres(q) => q
+                    .execute(self.as_pg())
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
-                ExecutionBinder::MySql(q) => {
-                    q.execute(self.as_my()).await.map(|r| r.rows_affected()).map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::MySql(q) => q
+                    .execute(self.as_my())
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "sqlite")]
-                ExecutionBinder::Sqlite(q) => {
-                    q.execute(self.as_sq()).await.map(|r| r.rows_affected()).map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::Sqlite(q) => q
+                    .execute(self.as_sq())
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(DbError::Sqlx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -419,7 +425,9 @@ impl DbPool {
                     let id = result.last_insert_id() as i64;
                     let fq = self.query_as::<R>(fetch_sql).bind(id);
                     match fq {
-                        QueryBinder::MySql(q) => q.fetch_one(self.as_my()).await.map_err(DbError::Sqlx),
+                        QueryBinder::MySql(q) => {
+                            q.fetch_one(self.as_my()).await.map_err(DbError::Sqlx)
+                        }
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     }
@@ -430,7 +438,9 @@ impl DbPool {
                     let id = result.last_insert_rowid();
                     let fq = self.query_as::<R>(fetch_sql).bind(id);
                     match fq {
-                        QueryBinder::Sqlite(q) => q.fetch_one(self.as_sq()).await.map_err(DbError::Sqlx),
+                        QueryBinder::Sqlite(q) => {
+                            q.fetch_one(self.as_sq()).await.map_err(DbError::Sqlx)
+                        }
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     }
@@ -457,9 +467,7 @@ impl DbTransaction {
                 QueryBinder::Postgres(sqlx::query_as::<sqlx::Postgres, R>(sql))
             }
             #[cfg(feature = "mysql")]
-            crate::pool::Driver::MySql => {
-                QueryBinder::MySql(sqlx::query_as::<sqlx::MySql, R>(sql))
-            }
+            crate::pool::Driver::MySql => QueryBinder::MySql(sqlx::query_as::<sqlx::MySql, R>(sql)),
             #[cfg(feature = "sqlite")]
             crate::pool::Driver::Sqlite => {
                 QueryBinder::Sqlite(sqlx::query_as::<sqlx::Sqlite, R>(sql))
@@ -494,17 +502,11 @@ impl DbTransaction {
     pub fn query_exec<'q>(&'q self, sql: &'q str) -> ExecutionBinder<'q> {
         match self.driver() {
             #[cfg(feature = "postgres")]
-            crate::pool::Driver::Postgres => {
-                ExecutionBinder::Postgres(sqlx::query(sql))
-            }
+            crate::pool::Driver::Postgres => ExecutionBinder::Postgres(sqlx::query(sql)),
             #[cfg(feature = "mysql")]
-            crate::pool::Driver::MySql => {
-                ExecutionBinder::MySql(sqlx::query(sql))
-            }
+            crate::pool::Driver::MySql => ExecutionBinder::MySql(sqlx::query(sql)),
             #[cfg(feature = "sqlite")]
-            crate::pool::Driver::Sqlite => {
-                ExecutionBinder::Sqlite(sqlx::query(sql))
-            }
+            crate::pool::Driver::Sqlite => ExecutionBinder::Sqlite(sqlx::query(sql)),
             #[allow(unreachable_patterns)]
             _ => unreachable!("no database feature enabled"),
         }
@@ -524,17 +526,20 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match binder {
                 #[cfg(feature = "postgres")]
-                QueryBinder::Postgres(q) => {
-                    q.fetch_all(Self::as_pg(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::Postgres(q) => q
+                    .fetch_all(Self::as_pg(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
-                QueryBinder::MySql(q) => {
-                    q.fetch_all(Self::as_my(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::MySql(q) => q
+                    .fetch_all(Self::as_my(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "sqlite")]
-                QueryBinder::Sqlite(q) => {
-                    q.fetch_all(Self::as_sq(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::Sqlite(q) => q
+                    .fetch_all(Self::as_sq(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -555,17 +560,20 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match binder {
                 #[cfg(feature = "postgres")]
-                QueryBinder::Postgres(q) => {
-                    q.fetch_optional(Self::as_pg(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::Postgres(q) => q
+                    .fetch_optional(Self::as_pg(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
-                QueryBinder::MySql(q) => {
-                    q.fetch_optional(Self::as_my(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::MySql(q) => q
+                    .fetch_optional(Self::as_my(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "sqlite")]
-                QueryBinder::Sqlite(q) => {
-                    q.fetch_optional(Self::as_sq(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::Sqlite(q) => q
+                    .fetch_optional(Self::as_sq(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -586,17 +594,20 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match binder {
                 #[cfg(feature = "postgres")]
-                QueryBinder::Postgres(q) => {
-                    q.fetch_one(Self::as_pg(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::Postgres(q) => q
+                    .fetch_one(Self::as_pg(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
-                QueryBinder::MySql(q) => {
-                    q.fetch_one(Self::as_my(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::MySql(q) => q
+                    .fetch_one(Self::as_my(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "sqlite")]
-                QueryBinder::Sqlite(q) => {
-                    q.fetch_one(Self::as_sq(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                QueryBinder::Sqlite(q) => q
+                    .fetch_one(Self::as_sq(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -614,17 +625,23 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match binder {
                 #[cfg(feature = "postgres")]
-                ExecutionBinder::Postgres(q) => {
-                    q.execute(Self::as_pg(&mut __g)).await.map(|r| r.rows_affected()).map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::Postgres(q) => q
+                    .execute(Self::as_pg(&mut __g))
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
-                ExecutionBinder::MySql(q) => {
-                    q.execute(Self::as_my(&mut __g)).await.map(|r| r.rows_affected()).map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::MySql(q) => q
+                    .execute(Self::as_my(&mut __g))
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "sqlite")]
-                ExecutionBinder::Sqlite(q) => {
-                    q.execute(Self::as_sq(&mut __g)).await.map(|r| r.rows_affected()).map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::Sqlite(q) => q
+                    .execute(Self::as_sq(&mut __g))
+                    .await
+                    .map(|r| r.rows_affected())
+                    .map_err(DbError::Sqlx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -645,17 +662,20 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match binder {
                 #[cfg(feature = "postgres")]
-                ScalarBinder::Postgres(q) => {
-                    q.fetch_one(Self::as_pg(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                ScalarBinder::Postgres(q) => q
+                    .fetch_one(Self::as_pg(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
-                ScalarBinder::MySql(q) => {
-                    q.fetch_one(Self::as_my(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                ScalarBinder::MySql(q) => q
+                    .fetch_one(Self::as_my(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "sqlite")]
-                ScalarBinder::Sqlite(q) => {
-                    q.fetch_one(Self::as_sq(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                ScalarBinder::Sqlite(q) => q
+                    .fetch_one(Self::as_sq(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[allow(unreachable_patterns)]
                 _ => unreachable!("no database feature enabled"),
             }
@@ -678,27 +698,40 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match ins {
                 #[cfg(feature = "postgres")]
-                ExecutionBinder::Postgres(q) => {
-                    q.fetch_one(Self::as_pg(&mut __g)).await.map_err(DbError::Sqlx)
-                }
+                ExecutionBinder::Postgres(q) => q
+                    .fetch_one(Self::as_pg(&mut __g))
+                    .await
+                    .map_err(DbError::Sqlx),
                 #[cfg(feature = "mysql")]
                 ExecutionBinder::MySql(q) => {
-                    let result = q.execute(Self::as_my(&mut __g)).await.map_err(DbError::Sqlx)?;
+                    let result = q
+                        .execute(Self::as_my(&mut __g))
+                        .await
+                        .map_err(DbError::Sqlx)?;
                     let id = result.last_insert_id() as i64;
                     let fq = self.query_as::<R>(fetch_sql).bind(id);
                     match fq {
-                        QueryBinder::MySql(q) => q.fetch_one(Self::as_my(&mut __g)).await.map_err(DbError::Sqlx),
+                        QueryBinder::MySql(q) => q
+                            .fetch_one(Self::as_my(&mut __g))
+                            .await
+                            .map_err(DbError::Sqlx),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     }
                 }
                 #[cfg(feature = "sqlite")]
                 ExecutionBinder::Sqlite(q) => {
-                    let result = q.execute(Self::as_sq(&mut __g)).await.map_err(DbError::Sqlx)?;
+                    let result = q
+                        .execute(Self::as_sq(&mut __g))
+                        .await
+                        .map_err(DbError::Sqlx)?;
                     let id = result.last_insert_rowid();
                     let fq = self.query_as::<R>(fetch_sql).bind(id);
                     match fq {
-                        QueryBinder::Sqlite(q) => q.fetch_one(Self::as_sq(&mut __g)).await.map_err(DbError::Sqlx),
+                        QueryBinder::Sqlite(q) => q
+                            .fetch_one(Self::as_sq(&mut __g))
+                            .await
+                            .map_err(DbError::Sqlx),
                         #[allow(unreachable_patterns)]
                         _ => unreachable!(),
                     }
