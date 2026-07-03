@@ -1,3 +1,7 @@
+// When no database feature is enabled, Driver/TxnInner become uninhabited enums.
+// Suppress unreachable_code/unreachable_patterns warnings — expected for the no-feature case.
+#![allow(unreachable_code, unreachable_patterns, unused_variables)]
+
 use std::sync::Arc;
 
 use crate::error::DbError;
@@ -12,8 +16,11 @@ tokio::task_local! {
 /// The raw sqlx transaction for a specific database driver.
 /// Not constructed by users — created internally by `DbTransaction::begin`.
 pub enum TxnInner {
+    #[cfg(feature = "postgres")]
     Postgres(sqlx::Transaction<'static, sqlx::Postgres>),
+    #[cfg(feature = "mysql")]
     MySql(sqlx::Transaction<'static, sqlx::MySql>),
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlx::Transaction<'static, sqlx::Sqlite>),
 }
 
@@ -32,18 +39,22 @@ impl DbTransaction {
     /// Begin a new transaction from the given connection pool.
     pub async fn begin(pool: &DbPool) -> Result<Self, DbError> {
         let (inner, driver) = match pool.driver() {
+            #[cfg(feature = "postgres")]
             Driver::Postgres => {
                 let tx = pool.as_pg().begin().await.map_err(DbError::Sqlx)?;
                 (TxnInner::Postgres(tx), Driver::Postgres)
             }
+            #[cfg(feature = "mysql")]
             Driver::MySql => {
                 let tx = pool.as_my().begin().await.map_err(DbError::Sqlx)?;
                 (TxnInner::MySql(tx), Driver::MySql)
             }
+            #[cfg(feature = "sqlite")]
             Driver::Sqlite => {
                 let tx = pool.as_sq().begin().await.map_err(DbError::Sqlx)?;
                 (TxnInner::Sqlite(tx), Driver::Sqlite)
             }
+            _ => unreachable!("no database feature enabled"),
         };
         Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(inner)),
@@ -57,8 +68,11 @@ impl DbTransaction {
             .unwrap_or_else(|_| panic!("DbTransaction::commit called while other clones exist"))
             .into_inner();
         match inner {
+            #[cfg(feature = "postgres")]
             TxnInner::Postgres(tx) => tx.commit().await.map_err(DbError::Sqlx),
+            #[cfg(feature = "mysql")]
             TxnInner::MySql(tx) => tx.commit().await.map_err(DbError::Sqlx),
+            #[cfg(feature = "sqlite")]
             TxnInner::Sqlite(tx) => tx.commit().await.map_err(DbError::Sqlx),
         }
     }
@@ -69,8 +83,11 @@ impl DbTransaction {
             .unwrap_or_else(|_| panic!("DbTransaction::rollback called while other clones exist"))
             .into_inner();
         match inner {
+            #[cfg(feature = "postgres")]
             TxnInner::Postgres(tx) => tx.rollback().await.map_err(DbError::Sqlx),
+            #[cfg(feature = "mysql")]
             TxnInner::MySql(tx) => tx.rollback().await.map_err(DbError::Sqlx),
+            #[cfg(feature = "sqlite")]
             TxnInner::Sqlite(tx) => tx.rollback().await.map_err(DbError::Sqlx),
         }
     }
@@ -81,10 +98,15 @@ impl DbTransaction {
     }
 
     /// Generate a positional placeholder for the current driver.
+    #[allow(unused_variables)]
     pub fn placeholder(&self, index: usize) -> String {
         match self.driver {
+            #[cfg(feature = "postgres")]
             Driver::Postgres => format!("${index}"),
-            Driver::MySql | Driver::Sqlite => "?".to_string(),
+            #[cfg(feature = "mysql")]
+            Driver::MySql => "?".to_string(),
+            #[cfg(feature = "sqlite")]
+            Driver::Sqlite => "?".to_string(),
         }
     }
 
@@ -97,7 +119,9 @@ impl DbTransaction {
     /// Obtain `&mut PgConnection` from the lock guard.
     /// # Panics
     /// Panics if the driver is not PostgreSQL.
+    #[cfg(feature = "postgres")]
     pub fn as_pg(guard: &mut TxnInner) -> &mut sqlx::PgConnection {
+        #[allow(unreachable_patterns)]
         match guard {
             TxnInner::Postgres(tx) => &mut **tx,
             _ => panic!("DbTransaction is not PostgreSQL"),
@@ -107,7 +131,9 @@ impl DbTransaction {
     /// Obtain `&mut MySqlConnection` from the lock guard.
     /// # Panics
     /// Panics if the driver is not MySQL.
+    #[cfg(feature = "mysql")]
     pub fn as_my(guard: &mut TxnInner) -> &mut sqlx::MySqlConnection {
+        #[allow(unreachable_patterns)]
         match guard {
             TxnInner::MySql(tx) => &mut **tx,
             _ => panic!("DbTransaction is not MySQL"),
@@ -117,7 +143,9 @@ impl DbTransaction {
     /// Obtain `&mut SqliteConnection` from the lock guard.
     /// # Panics
     /// Panics if the driver is not SQLite.
+    #[cfg(feature = "sqlite")]
     pub fn as_sq(guard: &mut TxnInner) -> &mut sqlx::SqliteConnection {
+        #[allow(unreachable_patterns)]
         match guard {
             TxnInner::Sqlite(tx) => &mut **tx,
             _ => panic!("DbTransaction is not SQLite"),

@@ -2,16 +2,18 @@
 name = "webr-db"
 version = "0.1.0"
 edition = "2021"
+description = "Database module for the Webr framework, providing connection pool management, transaction support, and ORM integration with MySQL, PostgreSQL, and SQLite support"
+repository = "https://github.com/xgpxg/webr"
+authors = ["wxg"]
 
 [dependencies]
-webr-core = { path = "../webr-core" }
-sqlx = { version = "0.8", features = [
-    "runtime-tokio", "mysql", "postgres", "sqlite", "chrono", "uuid",
-] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "chrono", "uuid"] }
 sea-query = "0.32"
-sea-query-binder = { version = "0.7", features = [
-    "sqlx-postgres", "sqlx-mysql", "sqlx-sqlite",
-] }
+sea-query-binder = { version = "0.7", default-features = false }
 serde = { version = "1", features = ["derive"] }
-chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["full"] }
+
+[features]
+mysql = ["sqlx/mysql", "sea-query-binder/sqlx-mysql"]
+postgres = ["sqlx/postgres", "sea-query-binder/sqlx-postgres"]
+sqlite = ["sqlx/sqlite", "sea-query-binder/sqlx-sqlite"]

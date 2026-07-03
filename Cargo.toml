@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     ".",
     "crates/webr-core",
@@ -11,18 +12,19 @@ members = [
     "examples/validation",
     "examples/sse",
 ]
-resolver = "2"
 
 [package]
 name = "webr"
 version = "0.1.0"
 edition = "2021"
 description = "A Spring Boot-inspired web framework for Rust"
+repository = "https://github.com/xgpxg/webr"
+authors = ["wxg"]
 
 [dependencies]
-webr-core = { path = "crates/webr-core" }
-webr-db = { path = "crates/webr-db" }
-webr-macros = { path = "crates/webr-macros" }
+webr-core = { version = "0.1.0", path = "crates/webr-core" }
+webr-db = { version = "0.1.0", path = "crates/webr-db" }
+webr-macros = { version = "0.1.0", path = "crates/webr-macros" }
 axum = { version = "0.8", features = ["multipart"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -33,4 +35,7 @@ inventory = "0.3"
 toml = "0.8"
 validator = { version = "0.20", features = ["derive"] }
 
-
+[features]
+mysql = ["webr-db/mysql"]
+postgres = ["webr-db/postgres"]
+sqlite = ["webr-db/sqlite"]

@@ -47,6 +47,7 @@ fn default_idle_timeout() -> u64 { 600 }
 
 impl DatasourceConfig {
     /// Build the connection URL from individual fields if `url` is not set.
+    #[allow(unused_variables)]
     pub fn resolve_url(&self) -> Result<String, crate::DbError> {
         if let Some(ref url) = self.url {
             return Ok(url.clone());
@@ -54,23 +55,26 @@ impl DatasourceConfig {
         let host = self.host.as_deref().unwrap_or("localhost");
         let database = self.database.as_deref().unwrap_or("");
         match self.driver.as_str() {
+            #[cfg(feature = "postgres")]
             "postgres" => {
                 let port = self.port.unwrap_or(5432);
                 let user = self.username.as_deref().unwrap_or("postgres");
                 let pass = self.password.as_deref().unwrap_or("");
                 Ok(format!("postgres://{user}:{pass}@{host}:{port}/{database}"))
             }
+            #[cfg(feature = "mysql")]
             "mysql" => {
                 let port = self.port.unwrap_or(3306);
                 let user = self.username.as_deref().unwrap_or("root");
                 let pass = self.password.as_deref().unwrap_or("");
                 Ok(format!("mysql://{user}:{pass}@{host}:{port}/{database}"))
             }
+            #[cfg(feature = "sqlite")]
             "sqlite" => {
                 Ok(format!("sqlite://{database}"))
             }
             other => Err(crate::DbError::Config(
-                format!("unsupported driver '{other}', expected: mysql, postgres, or sqlite"),
+                format!("unsupported driver '{other}'"),
             )),
         }
     }

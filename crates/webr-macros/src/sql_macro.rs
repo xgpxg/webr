@@ -4,6 +4,15 @@ use syn::{FnArg, ImplItemFn, LitStr, Pat, ReturnType, Type};
 
 use crate::sql_parser::{self, ParamRef, SqlSegment};
 
+// cfg attributes for database-specific match arms in generated code.
+const CFG_PG: &str = r#"#[cfg(feature = "postgres")]"#;
+const CFG_MY: &str = r#"#[cfg(feature = "mysql")]"#;
+const CFG_SQ: &str = r#"#[cfg(feature = "sqlite")]"#;
+
+fn cfg_pg() -> TokenStream { CFG_PG.parse().unwrap() }
+fn cfg_my() -> TokenStream { CFG_MY.parse().unwrap() }
+fn cfg_sq() -> TokenStream { CFG_SQ.parse().unwrap() }
+
 pub fn expand_sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     let method: ImplItemFn =
         syn::parse2(item).expect("#[sql] must be applied to a method in an impl block");
@@ -17,17 +26,16 @@ pub fn expand_sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     let method_sig = &method.sig;
     let _method_name = &method_sig.ident;
     let params = extract_method_params(method_sig);
-    let returns_option = is_option_return(&method_sig.output);
-    let returns_vec = is_vec_return(&method_sig.output);
+    let (row_type, fetch_mode) = extract_row_type(&method_sig.output);
 
     // Parse the SQL template
     let segments = sql_parser::parse_sql(&sql_template);
 
     // Generate the method body
     let body = if sql_parser::is_dynamic(&segments) {
-        generate_dynamic_sql(&segments, &params, returns_option)
+        generate_dynamic_sql(&segments, &params, &row_type, fetch_mode)
     } else {
-        generate_static_sql(&segments, &params, returns_option, returns_vec)
+        generate_static_sql(&segments, &params, &row_type, fetch_mode)
     };
 
     // Reconstruct the method with generated body
@@ -36,6 +44,7 @@ pub fn expand_sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     let sig = &method.sig;
 
     quote! {
+        #[allow(unexpected_cfgs)]
         #(#attrs)*
         #vis #sig {
             #body
@@ -112,24 +121,67 @@ fn is_collection_type(ty: &Type) -> bool {
     }
 }
 
-fn is_option_return(output: &ReturnType) -> bool {
-    match output {
-        ReturnType::Default => false,
-        ReturnType::Type(_, ty) => {
-            let ty_str = quote!(#ty).to_string();
-            ty_str.contains("Option")
-        }
-    }
+/// Fetch mode inferred from the method return type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FetchMode {
+    All,      // Result<Vec<T>, E> → fetch_all
+    Optional, // Result<Option<T>, E> → fetch_optional
+    One,      // Result<T, E> → fetch_one (single row)
+    Execute,  // Result<u64, E> → execute (insert/update/delete)
 }
 
-fn is_vec_return(output: &ReturnType) -> bool {
-    match output {
-        ReturnType::Default => false,
-        ReturnType::Type(_, ty) => {
-            let ty_str = quote!(#ty).to_string();
-            ty_str.contains("Vec")
+/// Extract the row type and fetch mode from the method return type.
+/// Supports `Self`, custom structs, and any type implementing `sqlx::FromRow`.
+fn extract_row_type(output: &ReturnType) -> (Type, FetchMode) {
+    let ReturnType::Type(_, ty) = output else {
+        panic!("#[sql] method must have a return type");
+    };
+    let Type::Path(tp) = &**ty else {
+        panic!("#[sql] return type must be Result<T, E>");
+    };
+    let seg = tp.path.segments.last().expect("expected Result type");
+    if seg.ident != "Result" {
+        panic!("#[sql] return type must be Result<T, E>");
+    }
+    let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
+        panic!("#[sql] Result must have type parameters");
+    };
+    let syn::GenericArgument::Type(inner) = args.args.first().expect("Result must have Ok type") else {
+        panic!("#[sql] expected type argument");
+    };
+
+    if let Type::Path(inner_tp) = inner {
+        if let Some(last_seg) = inner_tp.path.segments.last() {
+            // Result<Vec<T>, E>
+            if last_seg.ident == "Vec" {
+                if let syn::PathArguments::AngleBracketed(inner_args) = &last_seg.arguments {
+                    if let Some(syn::GenericArgument::Type(t)) = inner_args.args.first() {
+                        return (t.clone(), FetchMode::All);
+                    }
+                }
+            }
+            // Result<Option<T>, E>
+            if last_seg.ident == "Option" {
+                if let syn::PathArguments::AngleBracketed(inner_args) = &last_seg.arguments {
+                    if let Some(syn::GenericArgument::Type(t)) = inner_args.args.first() {
+                        return (t.clone(), FetchMode::Optional);
+                    }
+                }
+            }
         }
     }
+
+    // Result<u64, E> → Execute (insert/update/delete)
+    if let Type::Path(inner_tp) = inner {
+        if let Some(last_seg) = inner_tp.path.segments.last() {
+            if last_seg.ident == "u64" {
+                return (inner.clone(), FetchMode::Execute);
+            }
+        }
+    }
+
+    // Result<T, E> where T is a custom struct → fetch_one
+    (inner.clone(), FetchMode::One)
 }
 
 // ─── Static SQL generation ─────────────────────────────────────────
@@ -137,8 +189,8 @@ fn is_vec_return(output: &ReturnType) -> bool {
 fn generate_static_sql(
     segments: &[SqlSegment],
     params: &[MethodParam],
-    returns_option: bool,
-    returns_vec: bool,
+    row_type: &Type,
+    fetch_mode: FetchMode,
 ) -> TokenStream {
     let mut sql = String::new();
     let mut ordered_params: Vec<ParamRef> = Vec::new();
@@ -186,31 +238,38 @@ fn generate_static_sql(
     };
 
     // Choose fetch method based on return type
-    let fetch_call = if returns_option {
-        quote! { .fetch_optional }
-    } else if returns_vec {
-        quote! { .fetch_all }
-    } else {
-        // For insert/update/delete returning u64
-        return generate_execute_sql(segments, params);
+    let fetch_call = match fetch_mode {
+        FetchMode::Optional => quote! { .fetch_optional },
+        FetchMode::All => quote! { .fetch_all },
+        FetchMode::One => quote! { .fetch_one },
+        FetchMode::Execute => return generate_execute_sql(segments, params),
     };
 
     // Build result logging based on return type
-    let result_log = if returns_option {
-        quote! {
+    let result_log = match fetch_mode {
+        FetchMode::Optional => quote! {
             if let Ok(Some(ref __r)) = result {
                 webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
             } else if let Ok(None) = result {
                 webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
             }
-        }
-    } else {
-        quote! {
+        },
+        FetchMode::All => quote! {
             if let Ok(ref __r) = result {
                 webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
             }
-        }
+        },
+        FetchMode::One => quote! {
+            if let Ok(ref __r) = result {
+                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
+            }
+        },
+        FetchMode::Execute => unreachable!(),
     };
+
+    let __cfg_pg = cfg_pg();
+    let __cfg_my = cfg_my();
+    let __cfg_sq = cfg_sq();
 
     quote! {
         #sql_with_placeholders
@@ -218,9 +277,9 @@ fn generate_static_sql(
         webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
         if let Some(__t) = webr::db::try_get_txn() {
             match pool.driver() {
-                webr::db::Driver::Postgres => async move {
+                #__cfg_pg webr::db::Driver::Postgres => async move {
                     let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query_as::<_, Self>(&sql)
+                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
                         #( .bind(#bind_exprs) )*
                         #fetch_call(webr::db::DbTransaction::as_pg(&mut __g))
                         .await
@@ -228,9 +287,9 @@ fn generate_static_sql(
                     #result_log
                     result
                 }.await,
-                webr::db::Driver::MySql => async move {
+                #__cfg_my webr::db::Driver::MySql => async move {
                     let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query_as::<_, Self>(&sql)
+                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
                         #( .bind(#bind_exprs) )*
                         #fetch_call(webr::db::DbTransaction::as_my(&mut __g))
                         .await
@@ -238,9 +297,9 @@ fn generate_static_sql(
                     #result_log
                     result
                 }.await,
-                webr::db::Driver::Sqlite => async move {
+                #__cfg_sq webr::db::Driver::Sqlite => async move {
                     let mut __g = __t.lock().await;
-                    let result = webr::db::sqlx::query_as::<_, Self>(&sql)
+                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
                         #( .bind(#bind_exprs) )*
                         #fetch_call(webr::db::DbTransaction::as_sq(&mut __g))
                         .await
@@ -248,11 +307,13 @@ fn generate_static_sql(
                     #result_log
                     result
                 }.await,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("database driver not supported"),
             }
         } else {
             match pool.driver() {
-                webr::db::Driver::Postgres => {
-                    let result = webr::db::sqlx::query_as::<_, Self>(&sql)
+                #__cfg_pg webr::db::Driver::Postgres => {
+                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
                         #( .bind(#bind_exprs) )*
                         #fetch_call(pool.as_pg())
                         .await
@@ -260,8 +321,8 @@ fn generate_static_sql(
                     #result_log
                     result
                 }
-                webr::db::Driver::MySql => {
-                    let result = webr::db::sqlx::query_as::<_, Self>(&sql)
+                #__cfg_my webr::db::Driver::MySql => {
+                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
                         #( .bind(#bind_exprs) )*
                         #fetch_call(pool.as_my())
                         .await
@@ -269,8 +330,8 @@ fn generate_static_sql(
                     #result_log
                     result
                 }
-                webr::db::Driver::Sqlite => {
-                    let result = webr::db::sqlx::query_as::<_, Self>(&sql)
+                #__cfg_sq webr::db::Driver::Sqlite => {
+                    let result = webr::db::sqlx::query_as::<_, #row_type>(&sql)
                         #( .bind(#bind_exprs) )*
                         #fetch_call(pool.as_sq())
                         .await
@@ -278,6 +339,8 @@ fn generate_static_sql(
                     #result_log
                     result
                 }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("database driver not supported"),
             }
         }
     }
@@ -324,13 +387,17 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
         }
     };
 
+    let __cfg_pg = cfg_pg();
+    let __cfg_my = cfg_my();
+    let __cfg_sq = cfg_sq();
+
     quote! {
         #sql_build
         let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
         webr::tracing::debug!(target: "webr::sql", "==> {} | params: {:?}", sql, __params);
         if let Some(__t) = webr::db::try_get_txn() {
             match pool.driver() {
-                webr::db::Driver::Postgres => async move {
+                #__cfg_pg webr::db::Driver::Postgres => async move {
                     let mut __g = __t.lock().await;
                     let result = webr::db::sqlx::query(&sql)
                         #( .bind(#bind_exprs) )*
@@ -343,7 +410,7 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                     }
                     result
                 }.await,
-                webr::db::Driver::MySql => async move {
+                #__cfg_my webr::db::Driver::MySql => async move {
                     let mut __g = __t.lock().await;
                     let result = webr::db::sqlx::query(&sql)
                         #( .bind(#bind_exprs) )*
@@ -356,7 +423,7 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                     }
                     result
                 }.await,
-                webr::db::Driver::Sqlite => async move {
+                #__cfg_sq webr::db::Driver::Sqlite => async move {
                     let mut __g = __t.lock().await;
                     let result = webr::db::sqlx::query(&sql)
                         #( .bind(#bind_exprs) )*
@@ -369,10 +436,12 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                     }
                     result
                 }.await,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("database driver not supported"),
             }
         } else {
             match pool.driver() {
-                webr::db::Driver::Postgres => {
+                #__cfg_pg webr::db::Driver::Postgres => {
                     let result = webr::db::sqlx::query(&sql)
                         #( .bind(#bind_exprs) )*
                         .execute(pool.as_pg())
@@ -384,7 +453,7 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                     }
                     result
                 }
-                webr::db::Driver::MySql => {
+                #__cfg_my webr::db::Driver::MySql => {
                     let result = webr::db::sqlx::query(&sql)
                         #( .bind(#bind_exprs) )*
                         .execute(pool.as_my())
@@ -396,7 +465,7 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                     }
                     result
                 }
-                webr::db::Driver::Sqlite => {
+                #__cfg_sq webr::db::Driver::Sqlite => {
                     let result = webr::db::sqlx::query(&sql)
                         #( .bind(#bind_exprs) )*
                         .execute(pool.as_sq())
@@ -408,6 +477,8 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
                     }
                     result
                 }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("database driver not supported"),
             }
         }
     }
@@ -418,7 +489,8 @@ fn generate_execute_sql(segments: &[SqlSegment], params: &[MethodParam]) -> Toke
 fn generate_dynamic_sql(
     segments: &[SqlSegment],
     params: &[MethodParam],
-    returns_option: bool,
+    row_type: &Type,
+    fetch_mode: FetchMode,
 ) -> TokenStream {
     // Phase 1: build SQL string and collect params
     let sql_segments = generate_segment_code(segments, params, &[]);
@@ -426,28 +498,38 @@ fn generate_dynamic_sql(
     // Phase 2: chain .bind() calls in same conditional order
     let bind_segments = generate_bind_code(segments, params, &[]);
 
-    let fetch_call = if returns_option {
-        quote! { .fetch_optional }
-    } else {
-        quote! { .fetch_all }
+    let fetch_call = match fetch_mode {
+        FetchMode::Optional => quote! { .fetch_optional },
+        FetchMode::All => quote! { .fetch_all },
+        FetchMode::One => quote! { .fetch_one },
+        FetchMode::Execute => panic!("#[sql] dynamic SQL cannot be used for execute (use a static INSERT/UPDATE/DELETE)"),
     };
 
     // Build result logging based on return type
-    let result_log = if returns_option {
-        quote! {
+    let result_log = match fetch_mode {
+        FetchMode::Optional => quote! {
             if let Ok(Some(ref __r)) = __result {
                 webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
             } else if let Ok(None) = __result {
                 webr::tracing::debug!(target: "webr::sql", "<== (no rows)");
             }
-        }
-    } else {
-        quote! {
+        },
+        FetchMode::All => quote! {
             if let Ok(ref __r) = __result {
                 webr::tracing::debug!(target: "webr::sql", "<== {} rows", __r.len());
             }
-        }
+        },
+        FetchMode::One => quote! {
+            if let Ok(ref __r) = __result {
+                webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
+            }
+        },
+        FetchMode::Execute => unreachable!(),
     };
+
+    let __cfg_pg = cfg_pg();
+    let __cfg_my = cfg_my();
+    let __cfg_sq = cfg_sq();
 
     quote! {
         // Phase 1: build the complete SQL string and collect params
@@ -462,55 +544,59 @@ fn generate_dynamic_sql(
         if let Some(__t) = webr::db::try_get_txn() {
             // Phase 2 (txn): build query and chain .bind(), execute on txn connection
             match pool.driver() {
-                webr::db::Driver::Postgres => async move {
-                    let mut __query = webr::db::sqlx::query_as::<_, Self>(&__sql);
+                #__cfg_pg webr::db::Driver::Postgres => async move {
+                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
                     #bind_segments
                     let mut __g = __t.lock().await;
                     let __result = __query #fetch_call(webr::db::DbTransaction::as_pg(&mut __g)).await.map_err(webr::db::DbError::from);
                     #result_log
                     __result
                 }.await,
-                webr::db::Driver::MySql => async move {
-                    let mut __query = webr::db::sqlx::query_as::<_, Self>(&__sql);
+                #__cfg_my webr::db::Driver::MySql => async move {
+                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
                     #bind_segments
                     let mut __g = __t.lock().await;
                     let __result = __query #fetch_call(webr::db::DbTransaction::as_my(&mut __g)).await.map_err(webr::db::DbError::from);
                     #result_log
                     __result
                 }.await,
-                webr::db::Driver::Sqlite => async move {
-                    let mut __query = webr::db::sqlx::query_as::<_, Self>(&__sql);
+                #__cfg_sq webr::db::Driver::Sqlite => async move {
+                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
                     #bind_segments
                     let mut __g = __t.lock().await;
                     let __result = __query #fetch_call(webr::db::DbTransaction::as_sq(&mut __g)).await.map_err(webr::db::DbError::from);
                     #result_log
                     __result
                 }.await,
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("database driver not supported"),
             }
         } else {
             // Phase 2 (pool): build query and chain .bind(), execute on pool
             match pool.driver() {
-                webr::db::Driver::Postgres => {
-                    let mut __query = webr::db::sqlx::query_as::<_, Self>(&__sql);
+                #__cfg_pg webr::db::Driver::Postgres => {
+                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
                     #bind_segments
                     let __result = __query #fetch_call(pool.as_pg()).await.map_err(webr::db::DbError::from);
                     #result_log
                     __result
                 }
-                webr::db::Driver::MySql => {
-                    let mut __query = webr::db::sqlx::query_as::<_, Self>(&__sql);
+                #__cfg_my webr::db::Driver::MySql => {
+                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
                     #bind_segments
                     let __result = __query #fetch_call(pool.as_my()).await.map_err(webr::db::DbError::from);
                     #result_log
                     __result
                 }
-                webr::db::Driver::Sqlite => {
-                    let mut __query = webr::db::sqlx::query_as::<_, Self>(&__sql);
+                #__cfg_sq webr::db::Driver::Sqlite => {
+                    let mut __query = webr::db::sqlx::query_as::<_, #row_type>(&__sql);
                     #bind_segments
                     let __result = __query #fetch_call(pool.as_sq()).await.map_err(webr::db::DbError::from);
                     #result_log
                     __result
                 }
+                #[allow(unreachable_patterns)]
+                _ => unreachable!("database driver not supported"),
             }
         }
     }

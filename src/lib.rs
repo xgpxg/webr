@@ -6,9 +6,15 @@ pub use webr_core::config::{ConfigEntry, ConfigLoader, LogConfig, ServerConfig};
 pub use webr_core::context::ApplicationContext;
 pub use webr_core::error::{ValidationFieldError, WebrError, WebrResult};
 
-/// Database module: connection pool, error types, and re-exports of sqlx / sea-query.
+mod db_adapter;
+
 pub mod db {
-    pub use webr_db::*;
+    pub use webr_db::{
+        DatasourceConfig, DbError, Driver, PoolConfig,
+        scope_txn, try_get_txn, DbTransaction, ScopeTxnGuard, TxnInner,
+        sqlx, sea_query, sea_query_binder,
+    };
+    pub use crate::db_adapter::DbPool;
 }
 pub use axum::http::HeaderMap;
 pub use webr_core::extract::{Form, Header, HeaderMapExt, Json, Multipart, Path, Query};
