@@ -111,10 +111,7 @@ impl AppBuilder {
     }
 
     /// 手动注册组件实例（适用于配置对象等无法使用宏的类型）。
-    pub fn provide<T: crate::component::Component>(
-        &mut self,
-        instance: T,
-    ) -> Result<(), Error> {
+    pub fn provide<T: crate::component::Component>(&mut self, instance: T) -> Result<(), Error> {
         self.context.provide(instance)
     }
 

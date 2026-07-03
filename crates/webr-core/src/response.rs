@@ -99,13 +99,12 @@ impl FileResponse {
         path: impl Into<PathBuf>,
     ) -> Result<Self, crate::error::Error> {
         let path: PathBuf = path.into();
-        let file =
-            tokio::fs::File::open(&path)
-                .await
-                .map_err(|_| crate::error::Error::Http {
-                    status: StatusCode::NOT_FOUND,
-                    message: "File not found".into(),
-                })?;
+        let file = tokio::fs::File::open(&path)
+            .await
+            .map_err(|_| crate::error::Error::Http {
+                status: StatusCode::NOT_FOUND,
+                message: "File not found".into(),
+            })?;
         let filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
         let content_type = path
             .file_name()
@@ -184,7 +183,9 @@ fn build_disposition(filename: Option<&str>, inline: bool) -> Option<HeaderValue
 
 /// 最小化 percent-encoding（仅编码 Content-Disposition 中不允许的字符）
 fn utf8_percent_encode(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    // 非 ASCII 字节会编码为 3 字符（%XX），预留 3 倍容量
+    let mut out = String::with_capacity(input.len() * 3);
     for byte in input.bytes() {
         match byte {
             // RFC 5987 attr-char: 字母、数字及 !#$&+-.^_`|~
@@ -203,10 +204,10 @@ fn utf8_percent_encode(input: &str) -> String {
             | b'`'
             | b'|'
             | b'~' => out.push(byte as char),
-            // 空格用 %20
             _ => {
                 out.push('%');
-                out.push_str(&format!("{byte:02X}"));
+                out.push(HEX[(byte >> 4) as usize] as char);
+                out.push(HEX[(byte & 0x0F) as usize] as char);
             }
         }
     }
