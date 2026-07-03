@@ -100,7 +100,11 @@ impl<A: Authenticator> Middleware for AuthMiddleware<A> {
     async fn handle(&self, mut req: Request, next: Next) -> Response {
         let cached_body = req.extensions().get::<CachedBody>().map(|c| &c.0);
 
-        match self.authenticator.authenticate(req.headers(), cached_body).await {
+        match self
+            .authenticator
+            .authenticate(req.headers(), cached_body)
+            .await
+        {
             Ok(identity) => {
                 req.extensions_mut().insert(identity);
                 next.run(req).await
