@@ -9,7 +9,7 @@ use crate::inject::Inject;
 /// 组件工厂函数：接收容器引用以解析依赖，返回类型擦除的组件实例。
 /// 使用 `FnOnce` 保证每个工厂在 `build()` 阶段仅被消费一次。
 pub(crate) type FactoryFn =
-    Box<dyn FnOnce(&ApplicationContext) -> Result<Box<dyn Any + Send + Sync>, Error>>;
+    Box<dyn FnOnce(&ApplicationContext) -> Result<Box<dyn Any + Send + Sync>, Error> + Send + Sync>;
 
 /// IoC 容器，管理所有组件的生命周期。
 ///

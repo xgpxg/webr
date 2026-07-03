@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use webr::prelude::*;
-use webr::{Inject, Error};
+use webr::{Error, Inject};
 
 #[config(prefix = "app")]
 pub struct AppConfig {
@@ -109,5 +109,9 @@ pub struct CreateItemRequest {
 #[main]
 async fn main(app: &mut AppBuilder) -> Result<(), Error> {
     app.unified_response();
+    app.on_shutdown(|_| async move {
+        println!("Shutting down...");
+        Ok(())
+    });
     Ok(())
 }

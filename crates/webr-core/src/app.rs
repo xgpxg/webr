@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::component::ComponentEntry;
@@ -6,6 +8,13 @@ use crate::context::ApplicationContext;
 use crate::error::Error;
 use crate::middleware::{Middleware, Next, ScopedMiddleware, UnifiedResponse};
 use crate::router::WebrRouter;
+
+/// 生命周期回调类型：接收 IoC 容器引用，返回异步结果
+type LifecycleCallback = Box<
+    dyn Fn(&ApplicationContext) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// 应用构建器。
 ///
@@ -30,6 +39,10 @@ pub struct AppBuilder {
     built: bool,
     /// 配置加载器（持有原始 TOML 配置及 profile 信息）
     config: ConfigLoader,
+    /// 启动就绪回调（服务开始接受连接后执行）
+    on_ready_callbacks: Vec<LifecycleCallback>,
+    /// 关闭前回调（收到关闭信号后、连接排空前执行）
+    on_shutdown_callbacks: Vec<LifecycleCallback>,
 }
 
 impl AppBuilder {
@@ -70,6 +83,8 @@ impl AppBuilder {
             max_body_size: 2 * 1024 * 1024,
             built: false,
             config,
+            on_ready_callbacks: Vec::new(),
+            on_shutdown_callbacks: Vec::new(),
         };
 
         // 应用 server 配置
@@ -147,6 +162,52 @@ impl AppBuilder {
             )));
     }
 
+    /// 注册启动就绪回调，在服务开始接受连接**后**执行。
+    ///
+    /// 回调接收 IoC 容器引用，可解析已构建的组件执行初始化逻辑。
+    /// 任一回调返回 `Err` 时服务不会启动。
+    ///
+    /// # Example
+    /// ```rust
+    /// app.on_ready(|ctx| async move {
+    ///     let service = ctx.resolve::<MyService>()?;
+    ///     service.warm_up().await;
+    ///     tracing::info!("Cache warmed up");
+    ///     Ok(())
+    /// });
+    /// ```
+    pub fn on_ready<F, Fut>(&mut self, callback: F)
+    where
+        F: Fn(&ApplicationContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), Error>> + Send + 'static,
+    {
+        self.on_ready_callbacks
+            .push(Box::new(move |ctx| Box::pin(callback(ctx))));
+    }
+
+    /// 注册关闭前回调，在收到关闭信号**后**执行。
+    ///
+    /// 适用于资源清理、通知下游服务等场景。
+    /// 回调失败仅记录日志，不阻止关闭流程。
+    ///
+    /// # Example
+    /// ```rust
+    /// app.on_shutdown(|ctx| async move {
+    ///     let pool = ctx.resolve::<DbPool>()?;
+    ///     pool.close().await;
+    ///     tracing::info!("Database connection closed");
+    ///     Ok(())
+    /// });
+    /// ```
+    pub fn on_shutdown<F, Fut>(&mut self, callback: F)
+    where
+        F: Fn(&ApplicationContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), Error>> + Send + 'static,
+    {
+        self.on_shutdown_callbacks
+            .push(Box::new(move |ctx| Box::pin(callback(ctx))));
+    }
+
     // ─── 生命周期 API ──────────────────────────────────────
 
     /// 构建应用：扫描组件 → 拓扑排序实例化 → 挂载路由 → 打印路由表。
@@ -218,8 +279,18 @@ impl AppBuilder {
     }
 
     /// 启动 HTTP 服务（内部自动调用 [`build`](Self::build)）。
+    ///
+    /// 执行顺序：build → on_ready → 绑定监听 → 接受连接 → (Ctrl+C) → on_shutdown → 退出
     pub async fn run(mut self) -> Result<(), Error> {
         self.build()?;
+
+        // 包装 IoC 容器为 Arc，供生命周期回调共享访问
+        let context = Arc::new(self.context);
+
+        // 执行启动就绪回调（任一失败则不启动服务）
+        for callback in &self.on_ready_callbacks {
+            callback(&context).await?;
+        }
 
         let Self {
             router,
@@ -228,6 +299,7 @@ impl AppBuilder {
             host,
             port,
             max_body_size,
+            on_shutdown_callbacks,
             ..
         } = self;
         let axum_router =
@@ -241,11 +313,19 @@ impl AppBuilder {
 
         tracing::info!("WebR started on http://{}", addr);
 
-        // 优雅关闭：监听 Ctrl+C，等待连接排空后退出
+        // 优雅关闭：监听 Ctrl+C → 执行 on_shutdown 回调 → 等待连接排空
+        let shutdown_context = Arc::clone(&context);
         axum::serve(listener, axum_router)
             .with_graceful_shutdown(async move {
                 tokio::signal::ctrl_c().await.ok();
                 tracing::info!("Shutdown signal received, draining connections...");
+
+                // 执行关闭前回调（失败仅记录日志，不阻止关闭）
+                for callback in &on_shutdown_callbacks {
+                    if let Err(e) = callback(&shutdown_context).await {
+                        tracing::error!("on_shutdown callback error: {e}");
+                    }
+                }
             })
             .await
             .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
