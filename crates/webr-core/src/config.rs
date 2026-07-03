@@ -63,8 +63,7 @@ impl Default for LogConfig {
 /// 启动时由 `AppBuilder::build()` 收集并注册到 IoC 容器。
 pub struct ConfigEntry {
     /// 从 toml 根节点解析配置类型并注册到 IoC 容器
-    pub register:
-        fn(&toml::Value, &mut crate::context::ApplicationContext) -> Result<(), Error>,
+    pub register: fn(&toml::Value, &mut crate::context::ApplicationContext) -> Result<(), Error>,
 }
 
 inventory::collect!(ConfigEntry);
@@ -117,7 +116,7 @@ impl ConfigLoader {
                 if config_key == "PROFILE" {
                     continue;
                 }
-                let toml_key = config_key.to_lowercase().replace('_', ".");
+                let toml_key = config_key.to_lowercase().replace("__", ".");
                 set_env_override(&mut values, &toml_key, &val);
             }
         }
