@@ -5,7 +5,7 @@
 [English](README.md)
 
 WebR 将 Spring Boot 熟悉的开发体验带入 Rust 生态 ——
-注解驱动的控制器、自动依赖注入、配置管理、内置中间件系统，一切构建于 [Axum 0.8](https://github.com/tokio-rs/axum) 之上。
+注解(宏)驱动的控制器、自动依赖注入、配置管理、内置中间件系统，一切构建于 [Axum](https://github.com/tokio-rs/axum) 之上。
 
 ## 当前状态
 
@@ -17,12 +17,11 @@ WebR 将 Spring Boot 熟悉的开发体验带入 Rust 生态 ——
 
 ## 功能特性
 
-- **类注解驱动** — `#[controller]` + `#[get]`、`#[post]` 等注解，零样板代码定义路由。
-- **依赖注入** — `Inject<T>` 智能指针，启动时自动拓扑排序解析依赖，无需手动装配。
-- **配置系统** — 多文件 TOML 配置，支持 profile（`application-{profile}.toml`）和环境变量覆盖（`WEBR_` 前缀）。
-- **中间件系统** — 全局和路径范围中间件，简单的 trait 即可实现。内置：CORS、日志、Panic 恢复、统一响应。
+- **类注解驱动** — `#[controller]` 、 `#[component]` 等注解，零样板代码定义路由和组件。
+- **依赖注入** — `Inject<T>` 智能指针，自动注入单例对象。
+- **配置系统** — 多文件 TOML 配置，支持 profile 和环境变量覆盖。
+- **中间件系统** — 支持全局和路径范围中间件，简单的 trait 即可实现。内置：CORS、日志、Panic 恢复、统一响应等常用中间件。
 - **请求校验** — `Json`、`Query`、`Form` 提取器自动校验，基于 `validator` crate。
-- **统一响应** — 一行 `app.unified_response()` 将所有 2xx JSON 包装为 `{"code", "message", "data"}` 格式。
 - **文件上传下载** — `Multipart` 提取器和 `FileResponse` 支持字节/路径/内联响应。
 - **自定义错误处理** — `#[derive(HttpError)]` 声明式定义 HTTP 错误类型。
 
@@ -53,16 +52,14 @@ greeting = "Hello from WebR!"
 use webr::prelude::*;
 use webr::{Inject, Error};
 
-// ── 配置 ───────────────────────────────────────────────
-
+// 配置，自动和配置文件绑定。
 #[config(prefix = "app")]
 pub struct AppConfig {
     pub name: String,
     pub greeting: String,
 }
 
-// ── Service 层 ─────────────────────────────────────────
-
+// 业务逻辑层
 #[component]
 pub struct UserService;
 
@@ -72,8 +69,7 @@ impl UserService {
     }
 }
 
-// ── Controller 层 ──────────────────────────────────────
-
+// 接口层
 #[controller]
 pub struct HelloController {
     app_config: Inject<AppConfig>,
@@ -93,10 +89,10 @@ impl HelloController {
     }
 }
 
-// ── 启动入口 ───────────────────────────────────────────
-
+// 启动入口
 #[webr::main]
 async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
+    // 统一响应（可选）
     app.unified_response();
     Ok(())
 }
@@ -168,6 +164,22 @@ async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
 | `PanicRecovery`    | 捕获 handler panic，返回 500 而非进程崩溃                    |
 | `UnifiedResponse`  | 将 2xx JSON 包装为 `{"code", "message", "data"}` 标准格式 |
 
+**自定义中间件：**
+```rust
+pub struct LoggerMiddleware;
+#[async_trait]
+impl Middleware for LoggerMiddleware {
+    async fn handle(&self, request: Request, next: Next) -> Response {
+        // 前置处理...
+        
+        let response = next.run(request).await;
+        
+        // 后置处理...
+        
+        response
+    }
+}
+```
 ### 请求校验
 
 在 DTO 上 derive `Validate` —— 提取器（`Json`、`Query`、`Form`）自动校验：
@@ -183,10 +195,15 @@ pub struct CreateUserDto {
     pub age: u8,
 }
 
-#[post("/users")]
-async fn create_user(&self, webr::Json(dto): webr::Json<CreateUserDto>) -> webr::Json<User> {
-    // dto 已经校验通过
-    // ...
+#[component]
+struct UserController;
+
+impl UserController {
+    #[post("/users")]
+    async fn create_user(&self, webr::Json(dto): webr::Json<CreateUserDto>) -> webr::Json<User> {
+        // dto 已经校验通过
+        // ...
+    }
 }
 ```
 

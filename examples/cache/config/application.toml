@@ -1,0 +1,17 @@
+[server]
+port = 8080
+host = "0.0.0.0"
+
+[log]
+level = "info"
+
+[cache]
+backend = "redis"
+default-ttl = 300
+
+[cache.redis]
+url = "redis://127.0.0.1"
+
+[cache.memory]
+max-capacity = 10000
+time-to-idle = 600

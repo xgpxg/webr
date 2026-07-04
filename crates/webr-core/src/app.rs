@@ -213,7 +213,7 @@ impl AppBuilder {
     /// 构建应用：扫描组件 → 拓扑排序实例化 → 挂载路由 → 打印路由表。
     ///
     /// 幂等：重复调用无副作用，[`run`](Self::run) 会自动调用。
-    pub fn build(&mut self) -> Result<(), Error> {
+    pub async fn build(&mut self) -> Result<(), Error> {
         if self.built {
             return Ok(());
         }
@@ -282,7 +282,7 @@ impl AppBuilder {
     ///
     /// 执行顺序：build → on_ready → 绑定监听 → 接受连接 → (Ctrl+C) → on_shutdown → 退出
     pub async fn run(mut self) -> Result<(), Error> {
-        self.build()?;
+        self.build().await?;
 
         // 包装 IoC 容器为 Arc，供生命周期回调共享访问
         let context = Arc::new(self.context);

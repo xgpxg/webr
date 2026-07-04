@@ -29,6 +29,12 @@ pub fn expand_main(item: TokenStream) -> TokenStream {
                     ::std::process::exit(1);
                 }
 
+                // 自动初始化框架组件（cache、db 等）
+                if let Err(e) = ::webr::__auto_init(&mut app).await {
+                    ::webr::tracing::error!("Auto-init error: {}", e);
+                    ::std::process::exit(1);
+                }
+
                 // 启动 HTTP 服务（内部自动执行 build）
                 if let Err(e) = app.run().await {
                     ::webr::tracing::error!("Server error: {}", e);

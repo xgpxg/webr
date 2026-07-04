@@ -6,6 +6,10 @@ pub use webr_core::config::{ConfigEntry, ConfigLoader, LogConfig, ServerConfig};
 pub use webr_core::context::ApplicationContext;
 pub use webr_core::error::{Error, ValidationFieldError, WebrResult};
 
+mod auto_init;
+#[doc(hidden)]
+pub use auto_init::auto_init as __auto_init;
+
 #[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 mod db_adapter;
 
@@ -18,6 +22,25 @@ pub mod db {
         ScopeTxnGuard, TxnInner,
     };
 }
+
+#[cfg(any(feature = "cache-memory", feature = "cache-sled", feature = "cache-redis"))]
+mod cache_adapter;
+
+#[cfg(any(feature = "cache-memory", feature = "cache-sled", feature = "cache-redis"))]
+pub mod cache {
+    pub use crate::cache_adapter::Cache;
+    pub use webr_cache::{CacheConfig, CacheError, CacheStore};
+
+    #[cfg(feature = "cache-memory")]
+    pub use webr_cache::MemoryConfig;
+
+    #[cfg(feature = "cache-sled")]
+    pub use webr_cache::SledConfig;
+
+    #[cfg(feature = "cache-redis")]
+    pub use webr_cache::{HashOps, KeyOps, ListOps, RedisConfig, SetOps};
+}
+
 pub use axum::http::HeaderMap;
 pub use webr_core::extract::{Form, Header, HeaderMapExt, Json, Multipart, Path, Query};
 pub use webr_core::inject::Inject;

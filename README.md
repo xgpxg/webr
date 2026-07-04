@@ -4,7 +4,7 @@
 
 [中文文档](README_zh-CN.md)
 
-WebR brings the familiar developer experience of Spring Boot to the Rust ecosystem — annotation-driven controllers, automatic dependency injection, configuration management, and a built-in middleware system, all built on top of [Axum 0.8](https://github.com/tokio-rs/axum).
+WebR brings the familiar developer experience of Spring Boot to the Rust ecosystem — annotation-driven controllers, automatic dependency injection, configuration management, and a built-in middleware system, all built on top of [Axum](https://github.com/tokio-rs/axum).
 
 > **Status:** `webr-core` is currently available. Other modules (`webr-db`, `webr-macros` ORM features) are under active development.
 

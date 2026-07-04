@@ -6,12 +6,14 @@ members = [
     "crates/webr-db",
     "crates/webr-macros",
     "crates/webr-middleware",
+    "crates/webr-cache",
     "examples/hello-world",
     "examples/orm",
     "examples/file-upload",
     "examples/middleware",
     "examples/validation",
     "examples/sse",
+    "examples/cache",
 ]
 
 [package]
@@ -25,6 +27,7 @@ authors = ["wxg"]
 [dependencies]
 webr-core = { version = "0.1.0", path = "crates/webr-core" }
 webr-db = { version = "0.1.0", path = "crates/webr-db", optional = true }
+webr-cache = { version = "0.1.0", path = "crates/webr-cache", optional = true }
 webr-macros = { version = "0.1.0", path = "crates/webr-macros" }
 webr-middleware = { version = "0.1.0", path = "crates/webr-middleware" }
 axum = { version = "0.8", features = ["multipart"] }
@@ -39,6 +42,11 @@ validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
 
 [features]
+default = []
+auto-init = []
 mysql = ["dep:webr-db", "webr-db/mysql"]
 postgres = ["dep:webr-db", "webr-db/postgres"]
 sqlite = ["dep:webr-db", "webr-db/sqlite"]
+cache-memory = ["dep:webr-cache", "webr-cache/memory"]
+cache-sled = ["dep:webr-cache", "webr-cache/sled-backend"]
+cache-redis = ["dep:webr-cache", "webr-cache/redis-backend"]
