@@ -18,15 +18,23 @@ pub mod db {
     pub use crate::db_adapter::DbPool;
     pub use webr_db::{
         scope_txn, sea_query, sea_query_binder, sqlx, try_get_txn, DatasourceConfig, DbError,
-        DbTransaction, Driver, ExecutionBinder, PoolConfig, QueryBinder, ScalarBinder,
+        DbTransaction, Driver, ExecutionBinder, PoolConfig, QueryBinder, Result, ScalarBinder,
         ScopeTxnGuard, TxnInner,
     };
 }
 
-#[cfg(any(feature = "cache-memory", feature = "cache-sled", feature = "cache-redis"))]
+#[cfg(any(
+    feature = "cache-memory",
+    feature = "cache-sled",
+    feature = "cache-redis"
+))]
 mod cache_adapter;
 
-#[cfg(any(feature = "cache-memory", feature = "cache-sled", feature = "cache-redis"))]
+#[cfg(any(
+    feature = "cache-memory",
+    feature = "cache-sled",
+    feature = "cache-redis"
+))]
 pub mod cache {
     pub use crate::cache_adapter::Cache;
     pub use webr_cache::{CacheConfig, CacheError, CacheStore};
@@ -49,12 +57,12 @@ pub use webr_core::middleware::{
     CorsMiddleware, LoggerMiddleware, Middleware, Next, PanicRecovery, ScopedMiddleware,
     UnifiedResponse,
 };
-pub use webr_middleware::{
-    AuthError, AuthMiddleware, Authenticator, CachedBody, CachedBodyMiddleware, CurrentUser,
-    Guard, GuardMiddleware,
-};
 pub use webr_core::response::{FileResponse, IntoSseEventResult, SseEvent, SseResponse};
 pub use webr_core::router::{IntoRoutes, WebrRouter};
+pub use webr_middleware::{
+    AuthError, AuthMiddleware, Authenticator, CachedBody, CachedBodyMiddleware, CurrentUser, Guard,
+    GuardMiddleware,
+};
 
 pub use webr_macros::HttpError;
 pub use webr_macros::{

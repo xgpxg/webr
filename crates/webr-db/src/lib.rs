@@ -19,3 +19,5 @@ pub use transaction::{scope_txn, try_get_txn, DbTransaction, ScopeTxnGuard, TxnI
 pub use sea_query;
 pub use sea_query_binder;
 pub use sqlx;
+
+pub type Result<T> = std::result::Result<T, DbError>;
