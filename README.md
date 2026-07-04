@@ -4,24 +4,31 @@
 
 [中文文档](README_zh-CN.md)
 
-WebR brings the familiar developer experience of Spring Boot to the Rust ecosystem — annotation-driven controllers, automatic dependency injection, configuration management, and a built-in middleware system, all built on top of [Axum](https://github.com/tokio-rs/axum).
-
-> **Status:** `webr-core` is currently available. Other modules (`webr-db`, `webr-macros` ORM features) are under active development.
+WebR brings the developer experience of Spring Boot to the Rust ecosystem — macro-driven controllers, automatic
+dependency injection, configuration management, and a built-in middleware system, all built on top
+of [Axum](https://github.com/tokio-rs/axum).
 
 ## Features
 
-- **Annotation-Driven Controllers** — `#[controller]` + `#[get]`, `#[post]` etc. for zero-boilerplate route definitions.
-- **Dependency Injection** — `Inject<T>` smart pointer with automatic topological resolution. No manual wiring.
-- **Configuration System** — Multi-file TOML with profile support (`application-{profile}.toml`) and environment variable overrides (`WEBR_` prefix).
-- **Middleware System** — Global and path-scoped middleware with a simple trait. Built-in: CORS, Logger, Panic Recovery, Unified Response.
-- **Request Validation** — Automatic validation on `Json`, `Query`, `Form` extractors via the `validator` crate.
-- **Unified Response** — One-line `app.unified_response()` wraps all 2xx JSON into `{"code", "message", "data"}`.
-- **File Upload & Download** — `Multipart` extractor and `FileResponse` for byte/path/inline responses.
-- **Custom Error Handling** — `#[derive(HttpError)]` for declarative HTTP error types.
+- **Macro-Driven Controllers** — `#[controller]` with `#[get]`, `#[post]`, etc. for zero-boilerplate route definitions.
+- **Dependency Injection** — `#[component]` declares components, `Inject<T>` auto-injects. Dependencies resolved via
+  topological sort at startup.
+- **Configuration System** — Multi-file TOML + profile switching + environment variable overrides. `#[config]` binds and
+  injects.
+- **Middleware** — Global / path-scoped middleware via a simple trait. Built-in: CORS, Logger, Panic Recovery, Unified
+  Response.
+- **Authentication** — `AuthMiddleware` + `Authenticator` trait for path-level guards.
+- **Request Validation** — `Json`, `Query`, `Form` extractors validate automatically via the `validator` crate.
+- **File Upload & Download** — `Multipart` extractor and `FileResponse` for byte / path / inline responses.
+- **SSE** — `SseResponse` + `SseEvent` for server-sent events.
+- **Declarative Errors** — `#[derive(HttpError)]` maps business errors to HTTP status codes.
+- **Database** — Connection pool, `#[sql]` dynamic queries, `#[tx]` transaction management (feature-gated: MySQL /
+  PostgreSQL / SQLite).
+- **Cache** — Memory / Sled / Redis backends, feature-gated.
 
 ## Quick Start
 
-### `Cargo.toml`
+### 1. Add Dependencies
 
 ```toml
 [dependencies]
@@ -29,7 +36,9 @@ webr = "0.1"
 serde = { version = "1", features = ["derive"] }
 ```
 
-### `config/application.toml`
+### 2. Write Configuration
+
+`config/application.toml`:
 
 ```toml
 [server]
@@ -40,22 +49,22 @@ name = "my-app"
 greeting = "Hello from WebR!"
 ```
 
-### `src/main.rs`
+### 3. Write Code
+
+`src/main.rs`:
 
 ```rust
 use webr::prelude::*;
 use webr::{Inject, Error};
 
-// ── Config ─────────────────────────────────────────────
-
+// Config binding — fields auto-loaded from [app] section
 #[config(prefix = "app")]
 pub struct AppConfig {
     pub name: String,
     pub greeting: String,
 }
 
-// ── Service ────────────────────────────────────────────
-
+// Business component — auto-registered in the DI container
 #[component]
 pub struct UserService;
 
@@ -65,8 +74,7 @@ impl UserService {
     }
 }
 
-// ── Controller ─────────────────────────────────────────
-
+// Controller — declare dependencies via Inject<T>
 #[controller]
 pub struct HelloController {
     app_config: Inject<AppConfig>,
@@ -86,39 +94,54 @@ impl HelloController {
     }
 }
 
-// ── Entry ──────────────────────────────────────────────
-
+// Entry point
 #[webr::main]
 async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
-    app.unified_response();
+    app.unified_response(); // Enable unified response wrapping (optional)
     Ok(())
 }
 ```
+
+Run `cargo run` and visit `http://localhost:8080/`.
 
 ## Core Concepts
 
 ### Dependency Injection
 
-Components annotated with `#[component]` or `#[controller]` are auto-registered via the `inventory` crate. The framework resolves dependencies at startup using topological sorting.
+Types annotated with `#[component]` or `#[controller]` are automatically registered in the DI container. The framework
+resolves all dependencies at startup using topological sorting — no manual wiring required.
 
-Use `Inject<T>` to declare dependencies — it behaves like `Arc<T>` with transparent `Deref`:
+Use `Inject<T>` in fields to declare dependencies. It behaves like `Arc<T>` with transparent `Deref`:
 
 ```rust
 #[controller]
 pub struct UserController {
-    user_service: Inject<UserService>,  // auto-resolved
+    user_service: Inject<UserService>,  // auto-resolved and injected
+}
+```
+
+`#[config]`-annotated structs are also injectable:
+
+```rust
+#[controller]
+pub struct MyController {
+    config: Inject<AppConfig>,  // config object injected directly
 }
 ```
 
 ### Configuration
 
-Configuration is loaded from TOML files with the following priority (later overrides earlier):
+Configuration is loaded in the following priority order (later overrides earlier):
 
-1. `config/application.toml`
-2. `config/application-{profile}.toml` (profile defaults to `dev`, set via `WEBR_PROFILE`)
-3. Environment variables with `WEBR_` prefix (e.g., `WEBR_SERVER_PORT=9090`)
+| Priority | Source                                 | Description                               |
+|:--------:|----------------------------------------|-------------------------------------------|
+|    1     | `config/application.toml`              | Base configuration                        |
+|    2     | `config/application-{profile}.toml`    | Profile config, profile defaults to `dev` |
+|    3     | `WEBR_` prefixed environment variables | e.g. `WEBR_SERVER_PORT=9090`              |
 
-Use `#[config(prefix = "section")]` to bind a struct to a config section and make it injectable:
+Set the `WEBR_PROFILE` environment variable to switch profiles (e.g. `prod`, `test`).
+
+Use `#[config(prefix = "section")]` to bind a struct to a config section, making it injectable:
 
 ```rust
 #[config(prefix = "app")]
@@ -126,12 +149,38 @@ pub struct AppConfig {
     pub name: String,
     pub greeting: String,
 }
-// Automatically loaded from [app] section, injectable via Inject<AppConfig>
+```
+
+### Routing & Controllers
+
+Routes are defined via controller macros, supporting all standard HTTP methods:
+
+```rust
+#[controller]
+pub struct ItemController;
+
+#[controller]
+impl ItemController {
+    #[get("/items")]        // GET    /items
+    async fn list(&self) -> webr::Json<Vec<Item>> { /* ... */ }
+
+    #[get("/items/:id")]    // GET    /items/:id
+    async fn get(&self, webr::Path(id): webr::Path<i64>) -> webr::Json<Item> { /* ... */ }
+
+    #[post("/items")]       // POST   /items
+    async fn create(&self, webr::Json(dto): webr::Json<CreateDto>) -> StatusCode { /* ... */ }
+
+    #[put("/items/:id")]    // PUT    /items/:id
+    async fn update(&self, /* ... */) -> webr::Json<Item> { /* ... */ }
+
+    #[delete("/items/:id")] // DELETE /items/:id
+    async fn delete(&self, /* ... */) -> StatusCode { /* ... */ }
+}
 ```
 
 ### Middleware
 
-Implement the `Middleware` trait and register globally or on specific paths:
+#### Registration
 
 ```rust
 #[webr::main]
@@ -141,29 +190,76 @@ async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
     app.middleware(LoggerMiddleware);
     app.middleware(CorsMiddleware::new().allow_origin("*"));
 
-    // Path-scoped middleware
+    // Path-scoped middleware — only matches specified paths
     app.middleware_for("/api/**", RequireAuth);
-    app.middleware_except("/health", LoggerMiddleware);
 
-    // Unified response wrapper
-    app.unified_response();
+    // Path-excluded middleware — matches all requests except specified paths
+    app.middleware_except("/health", LoggerMiddleware);
 
     Ok(())
 }
 ```
 
-**Built-in middleware:**
+#### Built-in Middleware
 
-| Middleware | Description |
-|---|---|
-| `LoggerMiddleware` | Request logging with method, path, status, and duration |
-| `CorsMiddleware` | Builder-pattern CORS configuration |
-| `PanicRecovery` | Catches handler panics, returns 500 instead of crashing |
-| `UnifiedResponse` | Wraps 2xx JSON as `{"code", "message", "data"}` |
+| Middleware             | Description                                                        |
+|------------------------|--------------------------------------------------------------------|
+| `LoggerMiddleware`     | Request logging: method, path, status code, duration               |
+| `CorsMiddleware`       | Builder-pattern CORS configuration                                 |
+| `PanicRecovery`        | Catches handler panics, returns 500 instead of crashing            |
+| `UnifiedResponse`      | Wraps 2xx JSON responses into `{"code", "message", "data"}` format |
+| `AuthMiddleware`       | Authentication & authorization via the `Authenticator` trait       |
+| `CachedBodyMiddleware` | Caches request body for multiple reads                             |
+
+#### Custom Middleware
+
+Implement the `Middleware` trait:
+
+```rust
+pub struct MyMiddleware;
+
+#[async_trait]
+impl Middleware for MyMiddleware {
+    async fn handle(&self, request: Request, next: Next) -> Response {
+        // Pre-processing
+        let response = next.run(request).await;
+        // Post-processing
+        response
+    }
+}
+```
+
+### Authentication
+
+Implement the `Authenticator` trait to define authentication logic, then register via `AuthMiddleware`:
+
+```rust
+#[component]
+pub struct MyAuthenticator;
+
+#[async_trait]
+impl Authenticator for MyAuthenticator {
+    async fn authenticate(&self, request: &Request) -> Result<UserInfo, AuthError> {
+        // Extract and verify user identity from Header / Cookie / Token
+    }
+}
+```
+
+Extract the current user in controllers via `CurrentUser<T>`:
+
+```rust
+#[controller]
+impl ApiController {
+    #[get("/api/profile")]
+    async fn profile(&self, user: webr::CurrentUser<UserInfo>) -> webr::Json<UserInfo> {
+        webr::Json(user.0)
+    }
+}
+```
 
 ### Request Validation
 
-Derive `Validate` on DTOs — extractors (`Json`, `Query`, `Form`) validate automatically:
+Derive `Validate` on DTOs — extractors validate automatically:
 
 ```rust
 #[derive(Deserialize, Validate)]
@@ -176,18 +272,24 @@ pub struct CreateUserDto {
     pub age: u8,
 }
 
-#[post("/users")]
-async fn create_user(&self, webr::Json(dto): webr::Json<CreateUserDto>) -> webr::Json<User> {
-    // dto is already validated
-    // ...
+#[controller]
+struct UserController;
+
+#[controller]
+impl UserController {
+    #[post("/users")]
+    async fn create(&self, webr::Json(dto): webr::Json<CreateUserDto>) -> webr::Json<User> {
+        // dto is already validated
+        todo!()
+    }
 }
 ```
 
-Validation failures return `422` with per-field error details automatically.
+Validation failures automatically return `422 Unprocessable Entity` with per-field error details.
 
 ### Error Handling
 
-Use `#[derive(HttpError)]` for declarative business errors:
+Use `#[derive(HttpError)]` to declaratively define business error types:
 
 ```rust
 #[derive(Debug, webr::HttpError)]
@@ -199,18 +301,97 @@ pub enum UserError {
 }
 ```
 
-Use `WebrResult<T>` as handler return type — errors convert to HTTP responses automatically via `?`.
+Use `WebrResult<T>` as the handler return type — errors convert to HTTP responses automatically via `?`:
+
+```rust
+async fn get_user(&self, id: i64) -> WebrResult<webr::Json<User>> {
+    let user = self.service.find(id).await.ok_or(UserError::NotFound(id))?;
+    Ok(webr::Json(user))
+}
+```
+
+### File Upload & Download
+
+```rust
+// Upload
+#[post("/upload")]
+async fn upload(&self, mut multipart: webr::Multipart) -> webr::Json<Vec<String>> {
+    let mut filenames = Vec::new();
+    while let Ok(field) = multipart.next_field().await {
+        if let Some(name) = field.file_name() {
+            filenames.push(name.to_string());
+        }
+    }
+    webr::Json(filenames)
+}
+
+// Download
+#[get("/download/:filename")]
+async fn download(&self, webr::Path(filename): webr::Path<String>) -> webr::FileResponse {
+    webr::FileResponse::from_path(format!("./uploads/{}", filename))
+}
+```
+
+### SSE (Server-Sent Events)
+
+```rust
+use webr::{SseResponse, SseEvent};
+
+#[controller]
+impl EventController {
+    #[get("/events")]
+    async fn stream(&self) -> SseResponse {
+        SseResponse::new(|tx| async move {
+            for i in 0..10 {
+                let event = SseEvent::default().data(format!("message {}", i));
+                if tx.send(Ok(event)).await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        })
+    }
+}
+```
+
+## Optional Modules
+
+The following modules are enabled via Cargo features on demand:
+
+### Database
+
+Enable the feature for your database:
+
+```toml
+[dependencies]
+webr = { version = "0.1", features = ["mysql"] }    # or "postgres", "sqlite"
+```
+
+Supports `#[sql]` dynamic queries, `#[tx]` transaction management, `#[entity]` entity definitions. See the [
+`orm` example](examples/orm).
+
+### Cache
+
+Enable the feature for your backend:
+
+```toml
+[dependencies]
+webr = { version = "0.1", features = ["cache-memory"] }  # or "cache-sled", "cache-redis"
+```
+
+Supports Memory, Sled, and Redis backends. See the [`cache` example](examples/cache).
 
 ## Examples
 
-See the [`examples/`](examples/) directory:
-
-| Example | Description |
-|---|---|
-| [`hello-world`](examples/hello-world) | Basic controller, DI, config, unified response |
-| [`middleware`](examples/middleware) | Custom auth middleware, scoped routing, CORS |
-| [`validation`](examples/validation) | DTO validation on JSON body, query params, form data |
-| [`file-upload`](examples/file-upload) | Multipart upload, file download, inline preview |
+| Example                               | Description                                                 |
+|---------------------------------------|-------------------------------------------------------------|
+| [`hello-world`](examples/hello-world) | Controllers, DI, config binding, unified response           |
+| [`middleware`](examples/middleware)   | Custom auth middleware, path-scoped routing, CORS           |
+| [`validation`](examples/validation)   | DTO validation on JSON / Query / Form                       |
+| [`file-upload`](examples/file-upload) | Multi-file upload, file download, inline preview            |
+| [`sse`](examples/sse)                 | Server-Sent Events streaming                                |
+| [`orm`](examples/orm)                 | Entity CRUD, `#[sql]` dynamic queries, `#[tx]` transactions |
+| [`cache`](examples/cache)             | Cache module usage                                          |
 
 Run an example:
 
@@ -224,23 +405,25 @@ cargo run
 ```
 webr/
 ├── crates/
-│   ├── webr-core/      # Core framework (DI, config, middleware, routing, extractors)
-│   ├── webr-db/        # Database module (under development)
-│   └── webr-macros/    # Procedural macros (under development)
-├── examples/           # Example applications
-└── src/lib.rs          # Re-exports
+│   ├── webr-core/        # Core framework: DI, config, middleware, routing, extractors, response
+│   ├── webr-db/          # Database: connection pool, transactions, ORM support
+│   ├── webr-cache/       # Cache: Memory / Sled / Redis backends
+│   ├── webr-macros/      # Procedural macros: controller, component, config, entity, sql, tx, Validate
+│   └── webr-middleware/  # Middleware: authentication, request body caching
+├── examples/             # Example applications
+└── src/lib.rs            # Umbrella crate, unified re-export of all public APIs
 ```
 
 ## Tech Stack
 
-| Component | Crate |
-|---|---|
-| HTTP Framework | [Axum 0.8](https://crates.io/crates/axum) |
-| Async Runtime | [Tokio](https://crates.io/crates/tokio) |
-| Serialization | [Serde](https://crates.io/crates/serde) |
-| Validation | [validator](https://crates.io/crates/validator) |
-| Configuration | [toml](https://crates.io/crates/toml) |
-| Logging | [tracing](https://crates.io/crates/tracing) |
+| Component         | Dependency                                      |
+|-------------------|-------------------------------------------------|
+| HTTP Framework    | [Axum 0.8](https://crates.io/crates/axum)       |
+| Async Runtime     | [Tokio](https://crates.io/crates/tokio)         |
+| Serialization     | [Serde](https://crates.io/crates/serde)         |
+| Validation        | [validator](https://crates.io/crates/validator) |
+| Configuration     | [toml](https://crates.io/crates/toml)           |
+| Logging           | [tracing](https://crates.io/crates/tracing)     |
 | Auto-registration | [inventory](https://crates.io/crates/inventory) |
 
 ## License
