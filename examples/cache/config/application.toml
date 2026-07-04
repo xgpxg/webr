@@ -6,12 +6,12 @@ host = "0.0.0.0"
 level = "info"
 
 [cache]
-backend = "redis"
+backend = "memory"
 default-ttl = 300
-
-[cache.redis]
-url = "redis://127.0.0.1"
 
 [cache.memory]
 max-capacity = 10000
 time-to-idle = 600
+
+#[cache.redis]
+#url = "redis://127.0.0.1"
