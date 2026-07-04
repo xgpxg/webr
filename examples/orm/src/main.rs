@@ -27,6 +27,8 @@ pub struct SearchParams {
     pub done: Option<bool>,
     pub sort_by: Option<String>,
     pub ids: Option<String>,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
 }
 
 // ─── 自定义返回类型：聚合统计 ────────────────────────
@@ -99,6 +101,26 @@ impl Todo {
         pool: &webr::db::DbPool,
         title: Option<&str>,
     ) -> webr::db::Result<Vec<(i64, String)>> {
+        unreachable!()
+    }
+
+    // ─── 分页查询示例 ──────────────────────────────────────
+
+    /// 动态 SQL 分页：带条件过滤 + 分页
+    #[sql(
+        r#"SELECT * FROM todos
+        <where>
+            <if test="title">AND title LIKE #{title}</if>
+            <if test="done">AND done = #{done}</if>
+        </where>
+        ORDER BY id"#
+    )]
+    pub async fn search_page(
+        pool: &webr::db::DbPool,
+        title: Option<&str>,
+        done: Option<bool>,
+        pager: webr::db::Pagination,
+    ) -> webr::db::Result<webr::db::Page<Self>> {
         unreachable!()
     }
 }
@@ -246,6 +268,24 @@ impl TodoService {
         title: Option<&str>,
     ) -> webr::db::Result<Vec<(i64, String)>> {
         Todo::search_tuples(&self.pool, title).await
+    }
+
+    /// 分页查询
+    pub async fn find_page(
+        &self,
+        pager: webr::db::Pagination,
+    ) -> webr::db::Result<webr::db::Page<Todo>> {
+        Todo::find_page(&self.pool, pager).await
+    }
+
+    /// 带条件的分页查询
+    pub async fn search_page(
+        &self,
+        title: Option<&str>,
+        done: Option<bool>,
+        pager: webr::db::Pagination,
+    ) -> webr::db::Result<webr::db::Page<Todo>> {
+        Todo::search_page(&self.pool, title, done, pager).await
     }
 
     /// 事务提交测试：批量创建多个 todo，全部成功后提交
@@ -504,6 +544,40 @@ impl TodoController {
             "count_after": after,
             "no_leak": before == after,
         }))
+    }
+
+    // ─── 分页查询端点 ────────────────────────────────────────
+
+    /// GET /api/todos/page?page=1&page_size=10 — 分页查询
+    #[get("/todos/page")]
+    async fn page_todos(
+        &self,
+        webr::Query(params): webr::Query<SearchParams>,
+    ) -> webr::Json<webr::db::Page<Todo>> {
+        let page = params.page.unwrap_or(1);
+        let page_size = params.page_size.unwrap_or(10);
+        let pager = webr::db::Pagination::new(page, page_size);
+        let p = self.todo_service.find_page(pager).await.unwrap_or_else(|_| {
+            webr::db::Page::new(vec![], 0, page, page_size)
+        });
+        webr::Json(p)
+    }
+
+    /// GET /api/todos/page/search?title=...&done=...&page=1&page_size=10 — 条件分页
+    #[get("/todos/page/search")]
+    async fn search_page_todos(
+        &self,
+        webr::Query(params): webr::Query<SearchParams>,
+    ) -> webr::Json<webr::db::Page<Todo>> {
+        let title = params.title.as_deref();
+        let done = params.done;
+        let page = params.page.unwrap_or(1);
+        let page_size = params.page_size.unwrap_or(10);
+        let pager = webr::db::Pagination::new(page, page_size);
+        let p = self.todo_service.search_page(title, done, pager).await.unwrap_or_else(|_| {
+            webr::db::Page::new(vec![], 0, page, page_size)
+        });
+        webr::Json(p)
     }
 }
 

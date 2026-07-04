@@ -51,6 +51,8 @@ struct MethodParam {
     is_option: bool,
     /// Whether the type is a slice `&[T]` or `Vec<T>`
     is_collection: bool,
+    /// Whether the type is `Pagination`
+    is_pagination: bool,
 }
 
 fn extract_method_params(sig: &syn::Signature) -> Vec<MethodParam> {
@@ -74,10 +76,12 @@ fn extract_method_params(sig: &syn::Signature) -> Vec<MethodParam> {
 
         let is_option = is_option_type(&pat_type.ty);
         let is_collection = is_collection_type(&pat_type.ty);
+        let is_pagination = is_pagination_type(&pat_type.ty);
         params.push(MethodParam {
             name,
             is_option,
             is_collection,
+            is_pagination,
         });
     }
     params
@@ -112,6 +116,18 @@ fn is_collection_type(ty: &Type) -> bool {
     }
 }
 
+fn is_pagination_type(ty: &Type) -> bool {
+    if let Type::Path(tp) = ty {
+        tp.path
+            .segments
+            .last()
+            .map(|s| s.ident == "Pagination")
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
 /// Fetch mode inferred from the method return type.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum FetchMode {
@@ -120,6 +136,7 @@ enum FetchMode {
     One,      // Result<T, E> → fetch_one (single row)
     Execute,  // Result<u64, E> → execute (insert/update/delete)
     Scalar,   // Result<T, E> where T is scalar → fetch_scalar (e.g. COUNT, SUM)
+    Page,     // Result<Page<T>, E> → paginate (COUNT + LIMIT/OFFSET)
 }
 
 /// Extract the row type and fetch mode from the method return type.
@@ -137,25 +154,23 @@ fn extract_row_type(output: &ReturnType, sql_template: &str) -> (Type, FetchMode
     let syn::PathArguments::AngleBracketed(args) = &seg.arguments else {
         panic!("#[sql] Result must have type parameters");
     };
-    let syn::GenericArgument::Type(inner) = args.args.first().expect("Result must have Ok type") else {
+    let syn::GenericArgument::Type(inner) = args.args.first().expect("Result must have Ok type")
+    else {
         panic!("#[sql] expected type argument");
     };
 
     if let Type::Path(inner_tp) = inner {
         if let Some(last_seg) = inner_tp.path.segments.last() {
-            // Result<Vec<T>, E>
-            if last_seg.ident == "Vec" {
+            let fetch_mode = match last_seg.ident.to_string().as_str() {
+                "Page" => Some(FetchMode::Page),
+                "Vec" => Some(FetchMode::All),
+                "Option" => Some(FetchMode::Optional),
+                _ => None,
+            };
+            if let Some(fm) = fetch_mode {
                 if let syn::PathArguments::AngleBracketed(inner_args) = &last_seg.arguments {
                     if let Some(syn::GenericArgument::Type(t)) = inner_args.args.first() {
-                        return (t.clone(), FetchMode::All);
-                    }
-                }
-            }
-            // Result<Option<T>, E>
-            if last_seg.ident == "Option" {
-                if let syn::PathArguments::AngleBracketed(inner_args) = &last_seg.arguments {
-                    if let Some(syn::GenericArgument::Type(t)) = inner_args.args.first() {
-                        return (t.clone(), FetchMode::Optional);
+                        return (t.clone(), fm);
                     }
                 }
             }
@@ -184,10 +199,17 @@ fn is_scalar_type(ty: &Type) -> bool {
             let name = last_seg.ident.to_string();
             matches!(
                 name.as_str(),
-                "u8" | "u16" | "u32" | "u64"
-                    | "i8" | "i16" | "i32" | "i64"
-                    | "f32" | "f64"
-                    | "String" | "bool"
+                "u8" | "u16"
+                    | "u32"
+                    | "u64"
+                    | "i8"
+                    | "i16"
+                    | "i32"
+                    | "i64"
+                    | "f32"
+                    | "f64"
+                    | "String"
+                    | "bool"
             )
         } else {
             false
@@ -255,11 +277,15 @@ fn generate_static_sql(
         return generate_static_scalar_sql(sql_with_placeholders, &bind_exprs, row_type);
     }
 
+    if fetch_mode == FetchMode::Page {
+        return generate_static_page_sql(sql_with_placeholders, &bind_exprs, row_type, params);
+    }
+
     let fetch_method = match fetch_mode {
         FetchMode::Optional => quote! { fetch_optional },
         FetchMode::All => quote! { fetch_all },
         FetchMode::One => quote! { fetch_one },
-        FetchMode::Execute | FetchMode::Scalar => unreachable!(),
+        FetchMode::Execute | FetchMode::Scalar | FetchMode::Page => unreachable!(),
     };
 
     let result_log = match fetch_mode {
@@ -280,7 +306,7 @@ fn generate_static_sql(
                 webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
             }
         },
-        FetchMode::Execute | FetchMode::Scalar => unreachable!(),
+        FetchMode::Execute | FetchMode::Scalar | FetchMode::Page => unreachable!(),
     };
 
     quote! {
@@ -299,10 +325,7 @@ fn generate_static_sql(
     }
 }
 
-fn generate_static_execute_sql(
-    sql_build: TokenStream,
-    bind_exprs: &[TokenStream],
-) -> TokenStream {
+fn generate_static_execute_sql(sql_build: TokenStream, bind_exprs: &[TokenStream]) -> TokenStream {
     quote! {
         #sql_build
         if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
@@ -344,6 +367,50 @@ fn generate_static_scalar_sql(
     }
 }
 
+fn generate_static_page_sql(
+    sql_build: TokenStream,
+    bind_exprs: &[TokenStream],
+    row_type: &Type,
+    params: &[MethodParam],
+) -> TokenStream {
+    let page_param = params
+        .iter()
+        .find(|p| p.is_pagination)
+        .expect("#[sql] Page<T> return type requires a Pagination parameter");
+    let page_ident = syn::Ident::new(&page_param.name, proc_macro2::Span::call_site());
+
+    quote! {
+        #sql_build
+        let __offset = #page_ident.offset();
+        let __limit = #page_ident.limit();
+        let __count_sql = format!("SELECT COUNT(*) FROM ({}) __cnt", sql);
+        let mut __data_sql = sql;
+        __data_sql.push_str(&format!(" LIMIT {} OFFSET {}", __limit, __offset));
+
+        if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+            let __params: Vec<String> = vec![#( format!("{}", #bind_exprs), )*];
+            webr::tracing::debug!(target: "webr::sql", "==> [count] {} | params: {:?}", __count_sql, __params);
+            webr::tracing::debug!(target: "webr::sql", "==> [data]  {} | params: {:?}", __data_sql, __params);
+        }
+
+        if let Some(__t) = webr::db::try_get_txn() {
+            let __total = __t.fetch_scalar::<i64>(&__count_sql, |q| q #( .bind(#bind_exprs) )* ).await?;
+            let __items = __t.fetch_all::<#row_type>(&__data_sql, |q| q #( .bind(#bind_exprs) )* .bind(__limit).bind(__offset) ).await?;
+            if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+                webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
+            }
+            Ok(webr::db::Page::new(__items, __total, #page_ident.page, #page_ident.page_size))
+        } else {
+            let __total = pool.fetch_scalar::<i64>(&__count_sql, |q| q #( .bind(#bind_exprs) )* ).await?;
+            let __items = pool.fetch_all::<#row_type>(&__data_sql, |q| q #( .bind(#bind_exprs) )* .bind(__limit).bind(__offset) ).await?;
+            if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+                webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
+            }
+            Ok(webr::db::Page::new(__items, __total, #page_ident.page, #page_ident.page_size))
+        }
+    }
+}
+
 // ─── Dynamic SQL generation ────────────────────────────────────────
 
 fn generate_dynamic_sql(
@@ -358,12 +425,28 @@ fn generate_dynamic_sql(
     // Phase 2: chain .bind() calls in same conditional order
     let bind_segments = generate_bind_code(segments, params, &[]);
 
+    if fetch_mode == FetchMode::Page {
+        return generate_dynamic_page_sql(
+            segments,
+            params,
+            row_type,
+            &sql_segments,
+            &param_segments,
+            &bind_segments,
+        );
+    }
+
     let fetch_method = match fetch_mode {
         FetchMode::Optional => quote! { fetch_optional },
         FetchMode::All => quote! { fetch_all },
         FetchMode::One => quote! { fetch_one },
-        FetchMode::Execute => panic!("#[sql] dynamic SQL cannot be used for execute (INSERT/UPDATE/DELETE)"),
-        FetchMode::Scalar => panic!("#[sql] dynamic SQL with scalar return type is not yet supported"),
+        FetchMode::Execute => {
+            panic!("#[sql] dynamic SQL cannot be used for execute (INSERT/UPDATE/DELETE)")
+        }
+        FetchMode::Scalar => {
+            panic!("#[sql] dynamic SQL with scalar return type is not yet supported")
+        }
+        FetchMode::Page => unreachable!(),
     };
 
     let result_log = match fetch_mode {
@@ -384,7 +467,7 @@ fn generate_dynamic_sql(
                 webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
             }
         },
-        FetchMode::Execute | FetchMode::Scalar => unreachable!(),
+        FetchMode::Execute | FetchMode::Scalar | FetchMode::Page => unreachable!(),
     };
 
     quote! {
@@ -418,7 +501,74 @@ fn generate_dynamic_sql(
     }
 }
 
-fn generate_segment_code(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_dynamic_page_sql(
+    _segments: &[SqlSegment],
+    params: &[MethodParam],
+    row_type: &Type,
+    sql_segments: &TokenStream,
+    param_segments: &TokenStream,
+    bind_segments: &TokenStream,
+) -> TokenStream {
+    let page_param = params
+        .iter()
+        .find(|p| p.is_pagination)
+        .expect("#[sql] Page<T> return type requires a Pagination parameter");
+    let page_ident = syn::Ident::new(&page_param.name, proc_macro2::Span::call_site());
+
+    quote! {
+        // Phase 1: build the complete SQL string
+        let mut __sql = String::new();
+        let mut __idx: usize = 0;
+        #sql_segments
+
+        let __offset = #page_ident.offset();
+        let __limit = #page_ident.limit();
+        let __count_sql = format!("SELECT COUNT(*) FROM ({}) __cnt", __sql);
+        let __data_sql = format!("{} LIMIT {} OFFSET {}", __sql, __limit, __offset);
+
+        if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+            let mut __params: Vec<String> = Vec::new();
+            #param_segments
+            webr::tracing::debug!(target: "webr::sql", "==> [count] {} | params: {:?}", __count_sql, __params);
+            webr::tracing::debug!(target: "webr::sql", "==> [data]  {} | params: {:?}", __data_sql, __params);
+        }
+
+        // Phase 2: execute COUNT + data query
+        if let Some(__t) = webr::db::try_get_txn() {
+            let __total = __t.fetch_scalar::<i64>(&__count_sql, |mut q| {
+                #bind_segments
+                q
+            }).await?;
+            let __items = __t.fetch_all::<#row_type>(&__data_sql, |mut q| {
+                #bind_segments
+                q.bind(__limit).bind(__offset)
+            }).await?;
+            if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+                webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
+            }
+            Ok(webr::db::Page::new(__items, __total, #page_ident.page, #page_ident.page_size))
+        } else {
+            let __total = pool.fetch_scalar::<i64>(&__count_sql, |mut q| {
+                #bind_segments
+                q
+            }).await?;
+            let __items = pool.fetch_all::<#row_type>(&__data_sql, |mut q| {
+                #bind_segments
+                q.bind(__limit).bind(__offset)
+            }).await?;
+            if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+                webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
+            }
+            Ok(webr::db::Page::new(__items, __total, #page_ident.page, #page_ident.page_size))
+        }
+    }
+}
+
+fn generate_segment_code(
+    segments: &[SqlSegment],
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     let mut stmts = Vec::new();
     for seg in segments {
         stmts.push(generate_single_segment(seg, params, foreach_items));
@@ -426,7 +576,11 @@ fn generate_segment_code(segments: &[SqlSegment], params: &[MethodParam], foreac
     quote! { #(#stmts)* }
 }
 
-fn generate_single_segment(segment: &SqlSegment, params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_single_segment(
+    segment: &SqlSegment,
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     match segment {
         SqlSegment::Text(t) => {
             let trimmed = t.trim();
@@ -437,7 +591,12 @@ fn generate_single_segment(segment: &SqlSegment, params: &[MethodParam], foreach
                     quote! { __sql.push_str(" "); }
                 }
             } else {
-                quote! { __sql.push_str(#trimmed); }
+                quote! {
+                    if !__sql.is_empty() && !__sql.ends_with(char::is_whitespace) {
+                        __sql.push(' ');
+                    }
+                    __sql.push_str(#trimmed);
+                }
             }
         }
         SqlSegment::Param(_) => {
@@ -565,8 +724,12 @@ fn generate_single_segment(segment: &SqlSegment, params: &[MethodParam], foreach
             body,
         } => {
             let body_code = generate_segment_code(body, params, foreach_items);
-            let prefix_code = prefix.as_ref().map(|s| quote! { __trim_result.insert_str(0, #s); });
-            let suffix_code = suffix.as_ref().map(|s| quote! { __trim_result.push_str(#s); });
+            let prefix_code = prefix
+                .as_ref()
+                .map(|s| quote! { __trim_result.insert_str(0, #s); });
+            let suffix_code = suffix
+                .as_ref()
+                .map(|s| quote! { __trim_result.push_str(#s); });
 
             let prefix_strip = prefix_overrides.as_ref().map(|s| {
                 let patterns: Vec<&str> = s.split('|').collect();
@@ -598,7 +761,11 @@ fn generate_single_segment(segment: &SqlSegment, params: &[MethodParam], foreach
     }
 }
 
-fn generate_where_segment(segment: &SqlSegment, params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_where_segment(
+    segment: &SqlSegment,
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     match segment {
         SqlSegment::Text(t) => {
             let t = t.trim();
@@ -627,7 +794,11 @@ fn generate_where_segment(segment: &SqlSegment, params: &[MethodParam], foreach_
     }
 }
 
-fn generate_where_inner(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_where_inner(
+    segments: &[SqlSegment],
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     let mut stmts = Vec::new();
     let mut text_buf = String::new();
 
@@ -637,7 +808,10 @@ fn generate_where_inner(segments: &[SqlSegment], params: &[MethodParam], foreach
                 text_buf.push_str(t.trim());
             }
             SqlSegment::Param(_) => {
-                let prefix = text_buf.trim().trim_start_matches("AND ").trim_start_matches("OR ");
+                let prefix = text_buf
+                    .trim()
+                    .trim_start_matches("AND ")
+                    .trim_start_matches("OR ");
                 let prefix = if prefix.is_empty() { "" } else { prefix };
                 stmts.push(quote! {
                     __idx += 1;
@@ -654,7 +828,11 @@ fn generate_where_inner(segments: &[SqlSegment], params: &[MethodParam], foreach
     quote! { #(#stmts)* }
 }
 
-fn generate_set_segment(segment: &SqlSegment, params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_set_segment(
+    segment: &SqlSegment,
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     match segment {
         SqlSegment::Text(t) => {
             let t = t.trim();
@@ -683,7 +861,11 @@ fn generate_set_segment(segment: &SqlSegment, params: &[MethodParam], foreach_it
     }
 }
 
-fn generate_set_inner(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_set_inner(
+    segments: &[SqlSegment],
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     let mut stmts = Vec::new();
     let mut text_buf = String::new();
 
@@ -711,7 +893,11 @@ fn generate_set_inner(segments: &[SqlSegment], params: &[MethodParam], foreach_i
 
 // ─── Phase 2: Bind code generation ──────────────────────────────────
 
-fn generate_bind_code(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_bind_code(
+    segments: &[SqlSegment],
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     let mut stmts = Vec::new();
     for seg in segments {
         stmts.push(generate_single_bind(seg, params, foreach_items));
@@ -719,7 +905,11 @@ fn generate_bind_code(segments: &[SqlSegment], params: &[MethodParam], foreach_i
     quote! { #(#stmts)* }
 }
 
-fn generate_single_bind(segment: &SqlSegment, params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_single_bind(
+    segment: &SqlSegment,
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     match segment {
         SqlSegment::Param(p) => {
             let bind = resolve_param_bind(p, params, foreach_items);
@@ -755,7 +945,12 @@ fn generate_single_bind(segment: &SqlSegment, params: &[MethodParam], foreach_it
             }
             quote! { #(#branches)* }
         }
-        SqlSegment::ForEach { collection, item, body, .. } => {
+        SqlSegment::ForEach {
+            collection,
+            item,
+            body,
+            ..
+        } => {
             let coll_ident = syn::Ident::new(collection, proc_macro2::Span::call_site());
             let item_ident = syn::Ident::new(item, proc_macro2::Span::call_site());
             let mut inner_items = foreach_items.to_vec();
@@ -777,7 +972,11 @@ fn generate_single_bind(segment: &SqlSegment, params: &[MethodParam], foreach_it
 
 // ─── Phase 1.5: Parameter collection code generation ────────────────
 
-fn generate_param_collect_code(segments: &[SqlSegment], params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_param_collect_code(
+    segments: &[SqlSegment],
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     let mut stmts = Vec::new();
     for seg in segments {
         stmts.push(generate_single_param_collect(seg, params, foreach_items));
@@ -785,7 +984,11 @@ fn generate_param_collect_code(segments: &[SqlSegment], params: &[MethodParam], 
     quote! { #(#stmts)* }
 }
 
-fn generate_single_param_collect(segment: &SqlSegment, params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn generate_single_param_collect(
+    segment: &SqlSegment,
+    params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     match segment {
         SqlSegment::Param(p) => {
             let param_expr = resolve_param_bind(p, params, foreach_items);
@@ -821,7 +1024,12 @@ fn generate_single_param_collect(segment: &SqlSegment, params: &[MethodParam], f
             }
             quote! { #(#branches)* }
         }
-        SqlSegment::ForEach { collection, item, body, .. } => {
+        SqlSegment::ForEach {
+            collection,
+            item,
+            body,
+            ..
+        } => {
             let coll_ident = syn::Ident::new(collection, proc_macro2::Span::call_site());
             let item_ident = syn::Ident::new(item, proc_macro2::Span::call_site());
             let mut inner_items = foreach_items.to_vec();
@@ -844,7 +1052,11 @@ fn generate_single_param_collect(segment: &SqlSegment, params: &[MethodParam], f
 // ─── Parameter resolution ──────────────────────────────────────────
 
 /// Generate a bind expression for a parameter reference.
-fn resolve_param_bind(param: &ParamRef, method_params: &[MethodParam], foreach_items: &[String]) -> TokenStream {
+fn resolve_param_bind(
+    param: &ParamRef,
+    method_params: &[MethodParam],
+    foreach_items: &[String],
+) -> TokenStream {
     if param.path.len() == 1 && foreach_items.contains(&param.path[0]) {
         let ident = syn::Ident::new(&param.path[0], proc_macro2::Span::call_site());
         return quote! { #ident };
@@ -860,7 +1072,7 @@ fn resolve_param_bind(param: &ParamRef, method_params: &[MethodParam], foreach_i
         } else {
             let struct_param = method_params
                 .iter()
-                .find(|p| !p.is_option && !p.is_collection && p.name != "pool");
+                .find(|p| !p.is_option && !p.is_collection && !p.is_pagination && p.name != "pool");
             if let Some(sp) = struct_param {
                 let obj = syn::Ident::new(&sp.name, proc_macro2::Span::call_site());
                 let field = syn::Ident::new(name, proc_macro2::Span::call_site());

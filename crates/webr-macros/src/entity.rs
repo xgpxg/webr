@@ -263,6 +263,37 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     pool.fetch_scalar::<i64>(&sql, |q| q).await
                 }
             }
+
+            /// Find entities with pagination.
+            pub async fn find_page(
+                pool: &webr::db::DbPool,
+                pager: webr::db::Pagination,
+            ) -> Result<webr::db::Page<Self>, webr::db::DbError> {
+                let __offset = pager.offset();
+                let __limit = pager.limit();
+                let count_sql = format!("SELECT COUNT(*) FROM {}", #table);
+                let data_sql = format!(
+                    "SELECT {} FROM {} LIMIT {} OFFSET {}",
+                    #select_cols, #table, __limit, __offset,
+                );
+                webr::tracing::debug!(target: "webr::sql", "==> [count] {}", count_sql);
+                webr::tracing::debug!(target: "webr::sql", "==> [data]  {}", data_sql);
+                if let Some(__t) = webr::db::try_get_txn() {
+                    let __total = __t.fetch_scalar::<i64>(&count_sql, |q| q).await?;
+                    let __items = __t.fetch_all::<Self>(&data_sql, |q| q).await?;
+                    if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+                        webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
+                    }
+                    Ok(webr::db::Page::new(__items, __total, pager.page, pager.page_size))
+                } else {
+                    let __total = pool.fetch_scalar::<i64>(&count_sql, |q| q).await?;
+                    let __items = pool.fetch_all::<Self>(&data_sql, |q| q).await?;
+                    if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
+                        webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
+                    }
+                    Ok(webr::db::Page::new(__items, __total, pager.page, pager.page_size))
+                }
+            }
         }
     }
 }

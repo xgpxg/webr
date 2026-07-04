@@ -18,8 +18,8 @@ pub mod db {
     pub use crate::db_adapter::DbPool;
     pub use webr_db::{
         scope_txn, sea_query, sea_query_binder, sqlx, try_get_txn, DatasourceConfig, DbError,
-        DbTransaction, Driver, ExecutionBinder, PoolConfig, QueryBinder, Result, ScalarBinder,
-        ScopeTxnGuard, TxnInner,
+        DbTransaction, Driver, ExecutionBinder, Page, Pagination, PoolConfig, QueryBinder,
+        Result, ScalarBinder, ScopeTxnGuard, TxnInner,
     };
 }
 
