@@ -40,14 +40,14 @@ inventory = "0.3"
 toml = "0.8"
 validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
-sea-query = "0.32"
+sea-query = { version = "0.32", optional = true }
 
 [features]
 default = []
 auto-init = []
-mysql = ["dep:webr-db", "webr-db/mysql"]
-postgres = ["dep:webr-db", "webr-db/postgres"]
-sqlite = ["dep:webr-db", "webr-db/sqlite"]
+mysql = ["dep:webr-db", "webr-db/mysql", "sea-query"]
+postgres = ["dep:webr-db", "webr-db/postgres", "sea-query"]
+sqlite = ["dep:webr-db", "webr-db/sqlite", "sea-query"]
 cache-memory = ["dep:webr-cache", "webr-cache/memory"]
 cache-sled = ["dep:webr-cache", "webr-cache/sled-backend"]
 cache-redis = ["dep:webr-cache", "webr-cache/redis-backend"]
