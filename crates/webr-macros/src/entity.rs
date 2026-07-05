@@ -8,10 +8,10 @@ struct EntityInfo {
     struct_name: syn::Ident,
     primary_key: syn::Ident,
     primary_key_type: Type,
-    /// (field_name, column_name) pairs — excluding primary key
-    columns: Vec<(syn::Ident, String)>,
+    /// (field_name, column_name, field_type) tuples — excluding primary key
+    columns: Vec<(syn::Ident, String, Type)>,
     /// All columns including primary key
-    all_columns: Vec<(syn::Ident, String)>,
+    all_columns: Vec<(syn::Ident, String, Type)>,
 }
 
 pub fn expand_entity(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -28,12 +28,16 @@ pub fn expand_entity(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
+    // Generate manual FromRow impl so users don't need to import sqlx manually
+    let from_row_impl = generate_from_row_impl(&info);
+
     let iden_enum = generate_iden_enum(&info);
     let crud_impl = generate_crud_methods(&info);
 
     quote! {
         #item_struct
         #iden_enum
+        #from_row_impl
         #crud_impl
     }
 }
@@ -67,14 +71,15 @@ fn parse_entity(item_struct: &ItemStruct, table: String) -> EntityInfo {
     for field in fields {
         let field_name = field.ident.as_ref().unwrap().clone();
         let col_name = field_name.to_string();
-        all_columns.push((field_name.clone(), col_name.clone()));
+        let field_type = field.ty.clone();
+        all_columns.push((field_name.clone(), col_name.clone(), field_type.clone()));
 
         let is_pk = field.attrs.iter().any(|a| a.path().is_ident("primary_key"));
         if is_pk {
             primary_key = Some(field_name.clone());
             primary_key_type = Some(field.ty.clone());
         } else {
-            columns.push((field_name, col_name));
+            columns.push((field_name, col_name, field_type));
         }
     }
 
@@ -91,7 +96,8 @@ fn parse_entity(item_struct: &ItemStruct, table: String) -> EntityInfo {
     }
 }
 
-/// Generate the sea-query Iden enum.
+/// Generate the sea-query Iden enum with a manual trait implementation,
+/// so users do not need `sea-query` as a direct dependency.
 fn generate_iden_enum(info: &EntityInfo) -> TokenStream {
     let enum_name = syn::Ident::new(
         &format!("{}Iden", info.struct_name),
@@ -101,7 +107,7 @@ fn generate_iden_enum(info: &EntityInfo) -> TokenStream {
     let field_variants: Vec<_> = info
         .all_columns
         .iter()
-        .map(|(name, _)| {
+        .map(|(name, _, _)| {
             let variant_name = to_pascal_case(&name.to_string());
             syn::Ident::new(&variant_name, name.span())
         })
@@ -109,12 +115,58 @@ fn generate_iden_enum(info: &EntityInfo) -> TokenStream {
 
     let table_str = &info.table;
 
+    // Build unquoted() match arms: variant -> original column/table name string
+    let mut arm_variants = vec![quote! { Self::Table => write!(s, "{}", #table_str).unwrap() }];
+    for (name, _, _) in &info.all_columns {
+        let variant = syn::Ident::new(&to_pascal_case(&name.to_string()), name.span());
+        let col_str = name.to_string();
+        arm_variants.push(quote! { Self::#variant => write!(s, "{}", #col_str).unwrap() });
+    }
+
     quote! {
-        #[derive(Copy, Clone, Debug, sea_query::Iden)]
+        #[derive(Copy, Clone, Debug)]
         pub enum #enum_name {
-            #[iden = #table_str]
             Table,
             #(#field_variants,)*
+        }
+
+        impl webr::sea_query::Iden for #enum_name {
+            fn prepare(&self, s: &mut dyn ::std::fmt::Write, q: webr::sea_query::Quote) {
+                write!(s, "{}", q.left()).unwrap();
+                self.unquoted(s);
+                write!(s, "{}", q.right()).unwrap();
+            }
+
+            fn unquoted(&self, s: &mut dyn ::std::fmt::Write) {
+                match self {
+                    #(#arm_variants,)*
+                }
+            }
+        }
+    }
+}
+
+/// Generate a manual `sqlx::FromRow` impl so users don't need to derive it themselves
+/// and don't need `sqlx` as a direct dependency.
+fn generate_from_row_impl(info: &EntityInfo) -> TokenStream {
+    let struct_name = &info.struct_name;
+
+    let field_names: Vec<_> = info.all_columns.iter().map(|(f, _, _)| f).collect();
+    let col_strs: Vec<_> = info.all_columns.iter().map(|(_, c, _)| c.as_str()).collect();
+    let field_types: Vec<_> = info.all_columns.iter().map(|(_, _, t)| t).collect();
+
+    quote! {
+        #[automatically_derived]
+        impl<'__r, __R: webr::sqlx::Row> webr::sqlx::FromRow<'__r, __R> for #struct_name
+        where
+            &'__r str: webr::sqlx::ColumnIndex<__R>,
+            #( #field_types: webr::sqlx::Decode<'__r, __R::Database> + webr::sqlx::Type<__R::Database>, )*
+        {
+            fn from_row(__row: &'__r __R) -> ::std::result::Result<Self, webr::sqlx::Error> {
+                Ok(Self {
+                    #( #field_names: webr::sqlx::Row::try_get(__row, #col_strs)?, )*
+                })
+            }
         }
     }
 }
@@ -127,12 +179,12 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
     let pk_type = &info.primary_key_type;
     let pk_col = pk.to_string();
 
-    let all_col_names: Vec<&str> = info.all_columns.iter().map(|(_, c)| c.as_str()).collect();
+    let all_col_names: Vec<&str> = info.all_columns.iter().map(|(_, c, _)| c.as_str()).collect();
     let select_cols = all_col_names.join(", ");
-    let non_pk_col_names: Vec<&str> = info.columns.iter().map(|(_, c)| c.as_str()).collect();
+    let non_pk_col_names: Vec<&str> = info.columns.iter().map(|(_, c, _)| c.as_str()).collect();
     let non_pk_count = non_pk_col_names.len();
     let insert_cols = non_pk_col_names.join(", ");
-    let non_pk_field_names: Vec<&syn::Ident> = info.columns.iter().map(|(f, _)| f).collect();
+    let non_pk_field_names: Vec<&syn::Ident> = info.columns.iter().map(|(f, _, _)| f).collect();
 
     quote! {
         #[allow(unreachable_patterns, unreachable_code, unexpected_cfgs)]

@@ -80,7 +80,10 @@ pub use tracing;
 pub use tracing_subscriber;
 pub use validator;
 
-// Re-export sqlx so that #[entity] / #[sql] generated code can reference `webr::db::sqlx`
+// Re-export dependencies so that macro-generated code can reference them without
+// requiring users to add these crates as direct dependencies.
+#[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
+pub use webr_db::sea_query;
 #[cfg(any(feature = "mysql", feature = "postgres", feature = "sqlite"))]
 pub use webr_db::sqlx;
 

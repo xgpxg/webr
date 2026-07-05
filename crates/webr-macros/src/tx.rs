@@ -75,7 +75,8 @@ fn wrap_body_with_self(
             if let Some(__existing) = webr::db::try_get_txn() {
                 webr::db::scope_txn(__existing, async { #body }).await
             } else {
-                let __txn = webr::db::DbTransaction::begin(__pool).await?;
+                let __txn = webr::db::DbTransaction::begin(__pool).await
+                    .map_err(|e| ::webr::Error::Internal(e.to_string()))?;
                 let __r = {
                     let __guard = webr::db::scope_txn(&__txn, async { #body });
                     let __result = __guard.await;
@@ -102,7 +103,8 @@ fn wrap_body_with_param(
             if let Some(__existing) = webr::db::try_get_txn() {
                 webr::db::scope_txn(__existing, async { #body }).await
             } else {
-                let __txn = webr::db::DbTransaction::begin(__pool).await?;
+                let __txn = webr::db::DbTransaction::begin(__pool).await
+                    .map_err(|e| ::webr::Error::Internal(e.to_string()))?;
                 let __r = {
                     let __guard = webr::db::scope_txn(&__txn, async { #body });
                     let __result = __guard.await;
@@ -167,7 +169,10 @@ fn type_is_result(ty: &Type) -> bool {
         tp.path
             .segments
             .last()
-            .map(|s| s.ident == "Result")
+            .map(|s| {
+                let name = s.ident.to_string();
+                name == "Result" || name.ends_with("Result")
+            })
             .unwrap_or(false)
     } else {
         false
@@ -179,7 +184,7 @@ fn commit_rollback_tokens(output: &ReturnType) -> TokenStream {
     if is_result_return(output) {
         quote! {
             match &__result {
-                Ok(_) => { __txn.commit().await?; }
+                Ok(_) => { __txn.commit().await.map_err(|e| ::webr::Error::Internal(e.to_string()))?; }
                 Err(_) => { let _ = __txn.rollback().await; }
             }
         }

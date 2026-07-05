@@ -5,7 +5,7 @@ use webr::{Error, Inject};
 // ─── ORM 实体：Todo ─────────────────────────────────────
 
 #[webr::entity(table = "todos")]
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Todo {
     #[primary_key]
     pub id: i64,
@@ -183,27 +183,32 @@ pub struct TodoService {
     pool: Inject<webr::db::DbPool>,
 }
 
+/// 将 db 错误转换为框架内部错误
+fn db_err(e: webr::db::DbError) -> Error {
+    Error::Internal(e.to_string())
+}
+
 impl TodoService {
-    pub async fn list(&self) -> webr::db::Result<Vec<Todo>> {
-        Todo::find_all(&self.pool).await
+    pub async fn list(&self) -> webr::WebrResult<Vec<Todo>> {
+        Ok(Todo::find_all(&self.pool).await.map_err(db_err)?)
     }
 
-    pub async fn get(&self, id: i64) -> webr::db::Result<Option<Todo>> {
-        Todo::find_by_id(&self.pool, &id).await
+    pub async fn get(&self, id: i64) -> webr::WebrResult<Option<Todo>> {
+        Ok(Todo::find_by_id(&self.pool, &id).await.map_err(db_err)?)
     }
 
-    pub async fn create(&self, title: &str) -> webr::db::Result<Todo> {
+    pub async fn create(&self, title: &str) -> webr::WebrResult<Todo> {
         let todo = Todo {
             id: 0,
             title: title.to_string(),
             done: false,
         };
-        todo.save(&self.pool).await
+        Ok(todo.save(&self.pool).await.map_err(db_err)?)
     }
 
-    pub async fn delete(&self, id: i64) -> webr::db::Result<bool> {
-        if let Some(todo) = Todo::find_by_id(&self.pool, &id).await? {
-            todo.delete(&self.pool).await
+    pub async fn delete(&self, id: i64) -> webr::WebrResult<bool> {
+        if let Some(todo) = Todo::find_by_id(&self.pool, &id).await.map_err(db_err)? {
+            Ok(todo.delete(&self.pool).await.map_err(db_err)?)
         } else {
             Ok(false)
         }
@@ -213,69 +218,69 @@ impl TodoService {
         &self,
         title: Option<&str>,
         done: Option<bool>,
-    ) -> webr::db::Result<Vec<Todo>> {
-        Todo::search(&self.pool, title, done).await
+    ) -> webr::WebrResult<Vec<Todo>> {
+        Ok(Todo::search(&self.pool, title, done).await.map_err(db_err)?)
     }
 
-    pub async fn find_by_ids(&self, ids: &[i64]) -> webr::db::Result<Vec<Todo>> {
-        Todo::find_by_ids(&self.pool, ids).await
+    pub async fn find_by_ids(&self, ids: &[i64]) -> webr::WebrResult<Vec<Todo>> {
+        Ok(Todo::find_by_ids(&self.pool, ids).await.map_err(db_err)?)
     }
 
     pub async fn search_sorted(
         &self,
         title: Option<&str>,
         sort_by: Option<&str>,
-    ) -> webr::db::Result<Vec<Todo>> {
-        Todo::search_sorted(&self.pool, title, sort_by).await
+    ) -> webr::WebrResult<Vec<Todo>> {
+        Ok(Todo::search_sorted(&self.pool, title, sort_by).await.map_err(db_err)?)
     }
 
-    pub async fn count(&self) -> webr::db::Result<i64> {
-        Todo::count(&self.pool).await
+    pub async fn count(&self) -> webr::WebrResult<i64> {
+        Ok(Todo::count(&self.pool).await.map_err(db_err)?)
     }
 
-    pub async fn count_all(&self) -> webr::db::Result<u64> {
-        Todo::count_all(&self.pool).await
+    pub async fn count_all(&self) -> webr::WebrResult<u64> {
+        Ok(Todo::count_all(&self.pool).await.map_err(db_err)?)
     }
 
-    pub async fn stats(&self) -> webr::db::Result<TodoStats> {
-        Todo::stats(&self.pool).await
+    pub async fn stats(&self) -> webr::WebrResult<TodoStats> {
+        Ok(Todo::stats(&self.pool).await.map_err(db_err)?)
     }
 
     pub async fn stats_by_title(
         &self,
         title: Option<&str>,
-    ) -> webr::db::Result<Option<TodoStats>> {
-        Todo::stats_by_title(&self.pool, title).await
+    ) -> webr::WebrResult<Option<TodoStats>> {
+        Ok(Todo::stats_by_title(&self.pool, title).await.map_err(db_err)?)
     }
 
-    pub async fn first_tuple(&self) -> webr::db::Result<(i64, String)> {
-        Todo::first_tuple(&self.pool).await
+    pub async fn first_tuple(&self) -> webr::WebrResult<(i64, String)> {
+        Ok(Todo::first_tuple(&self.pool).await.map_err(db_err)?)
     }
 
     pub async fn find_tuple_by_title(
         &self,
         title: &str,
-    ) -> webr::db::Result<Option<(i64, String)>> {
-        Todo::find_tuple_by_title(&self.pool, title).await
+    ) -> webr::WebrResult<Option<(i64, String)>> {
+        Ok(Todo::find_tuple_by_title(&self.pool, title).await.map_err(db_err)?)
     }
 
-    pub async fn list_tuples(&self) -> webr::db::Result<Vec<(i64, String, bool)>> {
-        Todo::list_tuples(&self.pool).await
+    pub async fn list_tuples(&self) -> webr::WebrResult<Vec<(i64, String, bool)>> {
+        Ok(Todo::list_tuples(&self.pool).await.map_err(db_err)?)
     }
 
     pub async fn search_tuples(
         &self,
         title: Option<&str>,
-    ) -> webr::db::Result<Vec<(i64, String)>> {
-        Todo::search_tuples(&self.pool, title).await
+    ) -> webr::WebrResult<Vec<(i64, String)>> {
+        Ok(Todo::search_tuples(&self.pool, title).await.map_err(db_err)?)
     }
 
     /// 分页查询
     pub async fn find_page(
         &self,
         pager: webr::db::Pagination,
-    ) -> webr::db::Result<webr::db::Page<Todo>> {
-        Todo::find_page(&self.pool, pager).await
+    ) -> webr::WebrResult<webr::db::Page<Todo>> {
+        Ok(Todo::find_page(&self.pool, pager).await.map_err(db_err)?)
     }
 
     /// 带条件的分页查询
@@ -284,13 +289,13 @@ impl TodoService {
         title: Option<&str>,
         done: Option<bool>,
         pager: webr::db::Pagination,
-    ) -> webr::db::Result<webr::db::Page<Todo>> {
-        Todo::search_page(&self.pool, title, done, pager).await
+    ) -> webr::WebrResult<webr::db::Page<Todo>> {
+        Ok(Todo::search_page(&self.pool, title, done, pager).await.map_err(db_err)?)
     }
 
     /// 事务提交测试：批量创建多个 todo，全部成功后提交
     #[tx]
-    pub async fn create_batch(&self, titles: &[&str]) -> webr::db::Result<Vec<Todo>> {
+    pub async fn create_batch(&self, titles: &[&str]) -> webr::WebrResult<Vec<Todo>> {
         let mut todos = Vec::new();
         for title in titles {
             let todo = Todo {
@@ -298,7 +303,7 @@ impl TodoService {
                 title: title.to_string(),
                 done: false,
             };
-            let saved = todo.save(&self.pool).await?;
+            let saved = todo.save(&self.pool).await.map_err(db_err)?;
             todos.push(saved);
         }
         Ok(todos)
@@ -306,15 +311,15 @@ impl TodoService {
 
     /// 事务回滚测试：创建一条后故意失败，验证全部回滚
     #[tx]
-    pub async fn create_and_fail(&self, title: &str) -> webr::db::Result<Todo> {
+    pub async fn create_and_fail(&self, title: &str) -> webr::WebrResult<Todo> {
         let todo = Todo {
             id: 0,
             title: title.to_string(),
             done: false,
         };
-        let _saved = todo.save(&self.pool).await?;
+        let _saved = todo.save(&self.pool).await.map_err(db_err)?;
         // 故意返回错误 → 触发 rollback
-        Err(webr::db::DbError::Config("intentional rollback".into()))
+        Err(Error::Internal("intentional rollback".into()))
     }
 }
 
@@ -328,8 +333,8 @@ pub struct TodoController {
 #[controller(prefix = "/api")]
 impl TodoController {
     #[get("/todos")]
-    async fn list_todos(&self) -> webr::Json<Vec<Todo>> {
-        webr::Json(self.todo_service.list().await.unwrap_or_default())
+    async fn list_todos(&self) -> webr::WebrResult<webr::Json<Vec<Todo>>> {
+        Ok(webr::Json(self.todo_service.list().await?))
     }
 
     #[get("/todos/{id}")]
@@ -337,12 +342,7 @@ impl TodoController {
         &self,
         webr::Path(id): webr::Path<i64>,
     ) -> webr::WebrResult<webr::Json<Todo>> {
-        match self
-            .todo_service
-            .get(id)
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?
-        {
+        match self.todo_service.get(id).await? {
             Some(todo) => Ok(webr::Json(todo)),
             None => Err(Error::Http {
                 status: StatusCode::NOT_FOUND,
@@ -356,12 +356,7 @@ impl TodoController {
         &self,
         webr::Json(dto): webr::Json<CreateTodoDto>,
     ) -> webr::WebrResult<webr::Json<Todo>> {
-        let todo = self
-            .todo_service
-            .create(&dto.title)
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?;
-        Ok(webr::Json(todo))
+        Ok(webr::Json(self.todo_service.create(&dto.title).await?))
     }
 
     #[delete("/todos/{id}")]
@@ -369,11 +364,7 @@ impl TodoController {
         &self,
         webr::Path(id): webr::Path<i64>,
     ) -> webr::WebrResult<webr::Json<serde_json::Value>> {
-        let deleted = self
-            .todo_service
-            .delete(id)
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?;
+        let deleted = self.todo_service.delete(id).await?;
         Ok(webr::Json(serde_json::json!({"deleted": deleted})))
     }
 
@@ -382,15 +373,10 @@ impl TodoController {
     async fn search_todos(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<Vec<Todo>> {
+    ) -> webr::WebrResult<webr::Json<Vec<Todo>>> {
         let title = params.title.as_deref();
         let done = params.done;
-        webr::Json(
-            self.todo_service
-                .search(title, done)
-                .await
-                .unwrap_or_default(),
-        )
+        Ok(webr::Json(self.todo_service.search(title, done).await?))
     }
 
     /// GET /api/todos/by-ids?ids=1,2,3
@@ -398,7 +384,7 @@ impl TodoController {
     async fn find_todos_by_ids(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<Vec<Todo>> {
+    ) -> webr::WebrResult<webr::Json<Vec<Todo>>> {
         let ids: Vec<i64> = params
             .ids
             .as_deref()
@@ -406,12 +392,7 @@ impl TodoController {
             .split(',')
             .filter_map(|s| s.trim().parse().ok())
             .collect();
-        webr::Json(
-            self.todo_service
-                .find_by_ids(&ids)
-                .await
-                .unwrap_or_default(),
-        )
+        Ok(webr::Json(self.todo_service.find_by_ids(&ids).await?))
     }
 
     /// GET /api/todos/sorted?title=...&sort_by=...
@@ -419,32 +400,23 @@ impl TodoController {
     async fn search_sorted_todos(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<Vec<Todo>> {
+    ) -> webr::WebrResult<webr::Json<Vec<Todo>>> {
         let title = params.title.as_deref();
         let sort_by = params.sort_by.as_deref();
-        webr::Json(
-            self.todo_service
-                .search_sorted(title, sort_by)
-                .await
-                .unwrap_or_default(),
-        )
+        Ok(webr::Json(self.todo_service.search_sorted(title, sort_by).await?))
     }
+
     /// GET /api/todos/count-all — #[sql] COUNT(*) 查询
     #[get("/todos/count-all")]
-    async fn count_all_todos(&self) -> webr::Json<serde_json::Value> {
-        match self.todo_service.count_all().await {
-            Ok(count) => webr::Json(serde_json::json!({"count": count})),
-            Err(e) => webr::Json(serde_json::json!({"error": e.to_string()})),
-        }
+    async fn count_all_todos(&self) -> webr::WebrResult<webr::Json<serde_json::Value>> {
+        let count = self.todo_service.count_all().await?;
+        Ok(webr::Json(serde_json::json!({"count": count})))
     }
 
     /// GET /api/todos/stats — 聚合统计（自定义返回类型）
     #[get("/todos/stats")]
-    async fn stats_todos(&self) -> webr::Json<TodoStats> {
-        webr::Json(self.todo_service.stats().await.unwrap_or(TodoStats {
-            total: 0,
-            done_count: 0,
-        }))
+    async fn stats_todos(&self) -> webr::WebrResult<webr::Json<TodoStats>> {
+        Ok(webr::Json(self.todo_service.stats().await?))
     }
 
     /// GET /api/todos/stats/by-title?title=... — 按标题过滤的聚合统计
@@ -452,12 +424,11 @@ impl TodoController {
     async fn stats_by_title(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<serde_json::Value> {
+    ) -> webr::WebrResult<webr::Json<serde_json::Value>> {
         let title = params.title.as_deref();
-        match self.todo_service.stats_by_title(title).await {
-            Ok(Some(stats)) => webr::Json(serde_json::json!(stats)),
-            Ok(None) => webr::Json(serde_json::json!({"total": 0, "done_count": 0})),
-            Err(_) => webr::Json(serde_json::json!({"total": 0, "done_count": 0})),
+        match self.todo_service.stats_by_title(title).await? {
+            Some(stats) => Ok(webr::Json(serde_json::json!(stats))),
+            None => Ok(webr::Json(serde_json::json!({"total": 0, "done_count": 0}))),
         }
     }
 
@@ -465,11 +436,9 @@ impl TodoController {
 
     /// GET /api/todos/tuple/first — 静态 SQL 返回元组 (id, title)
     #[get("/todos/tuple/first")]
-    async fn first_tuple_todo(&self) -> webr::Json<serde_json::Value> {
-        match self.todo_service.first_tuple().await {
-            Ok((id, title)) => webr::Json(serde_json::json!({"id": id, "title": title})),
-            Err(e) => webr::Json(serde_json::json!({"error": e.to_string()})),
-        }
+    async fn first_tuple_todo(&self) -> webr::WebrResult<webr::Json<serde_json::Value>> {
+        let (id, title) = self.todo_service.first_tuple().await?;
+        Ok(webr::Json(serde_json::json!({"id": id, "title": title})))
     }
 
     /// GET /api/todos/tuple/by-title?title=... — 静态 SQL + 参数返回元组
@@ -477,26 +446,23 @@ impl TodoController {
     async fn tuple_by_title(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<serde_json::Value> {
+    ) -> webr::WebrResult<webr::Json<serde_json::Value>> {
         let title = params.title.as_deref().unwrap_or("");
-        match self.todo_service.find_tuple_by_title(title).await {
-            Ok(Some((id, t))) => webr::Json(serde_json::json!({"id": id, "title": t})),
-            Ok(None) => webr::Json(serde_json::json!({"found": false})),
-            Err(e) => webr::Json(serde_json::json!({"error": e.to_string()})),
+        match self.todo_service.find_tuple_by_title(title).await? {
+            Some((id, t)) => Ok(webr::Json(serde_json::json!({"id": id, "title": t}))),
+            None => Ok(webr::Json(serde_json::json!({"found": false}))),
         }
     }
 
     /// GET /api/todos/tuple/list — 静态 SQL 返回元组列表 (id, title, done)
     #[get("/todos/tuple/list")]
-    async fn list_tuple_todos(&self) -> webr::Json<serde_json::Value> {
-        match self.todo_service.list_tuples().await {
-            Ok(tuples) => webr::Json(serde_json::json!({
-                "items": tuples.iter().map(|(id, title, done)| {
-                    serde_json::json!({"id": id, "title": title, "done": done})
-                }).collect::<Vec<_>>()
-            })),
-            Err(e) => webr::Json(serde_json::json!({"error": e.to_string()})),
-        }
+    async fn list_tuple_todos(&self) -> webr::WebrResult<webr::Json<serde_json::Value>> {
+        let tuples = self.todo_service.list_tuples().await?;
+        Ok(webr::Json(serde_json::json!({
+            "items": tuples.iter().map(|(id, title, done)| {
+                serde_json::json!({"id": id, "title": title, "done": done})
+            }).collect::<Vec<_>>()
+        })))
     }
 
     /// GET /api/todos/tuple/search?title=... — 动态 SQL + 参数返回元组列表
@@ -504,17 +470,15 @@ impl TodoController {
     async fn search_tuple_todos(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<serde_json::Value> {
+    ) -> webr::WebrResult<webr::Json<serde_json::Value>> {
         let title = params.title.as_deref();
-        match self.todo_service.search_tuples(title).await {
-            Ok(tuples) => webr::Json(serde_json::json!({
-                "items": tuples.iter().map(|(id, title)| {
-                    println!("tuple: {:?}", (id, title));
-                    serde_json::json!({"id": id, "title": title})
-                }).collect::<Vec<_>>()
-            })),
-            Err(e) => webr::Json(serde_json::json!({"error": e.to_string()})),
-        }
+        let tuples = self.todo_service.search_tuples(title).await?;
+        Ok(webr::Json(serde_json::json!({
+            "items": tuples.iter().map(|(id, title)| {
+                println!("tuple: {:?}", (id, title));
+                serde_json::json!({"id": id, "title": title})
+            }).collect::<Vec<_>>()
+        })))
     }
 
     /// POST /api/todos/tx/commit — 批量创建 3 条 todo，验证事务提交
@@ -523,8 +487,7 @@ impl TodoController {
         let todos = self
             .todo_service
             .create_batch(&["tx-a", "tx-b", "tx-c"])
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))?;
+            .await?;
         Ok(webr::Json(serde_json::json!({
             "committed": true,
             "count": todos.len(),
@@ -534,16 +497,16 @@ impl TodoController {
 
     /// POST /api/todos/tx/rollback — 创建 1 条后故意失败，验证回滚
     #[post("/todos/tx/rollback")]
-    async fn tx_rollback(&self) -> webr::Json<serde_json::Value> {
-        let before = self.todo_service.count().await.unwrap_or(0);
+    async fn tx_rollback(&self) -> webr::WebrResult<webr::Json<serde_json::Value>> {
+        let before = self.todo_service.count().await?;
         let result = self.todo_service.create_and_fail("should-not-exist").await;
-        let after = self.todo_service.count().await.unwrap_or(0);
-        webr::Json(serde_json::json!({
+        let after = self.todo_service.count().await?;
+        Ok(webr::Json(serde_json::json!({
             "rolled_back": result.is_err(),
             "count_before": before,
             "count_after": after,
             "no_leak": before == after,
-        }))
+        })))
     }
 
     // ─── 分页查询端点 ────────────────────────────────────────
@@ -553,14 +516,12 @@ impl TodoController {
     async fn page_todos(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<webr::db::Page<Todo>> {
+    ) -> webr::WebrResult<webr::Json<webr::db::Page<Todo>>> {
         let page = params.page.unwrap_or(1);
         let page_size = params.page_size.unwrap_or(10);
         let pager = webr::db::Pagination::new(page, page_size);
-        let p = self.todo_service.find_page(pager).await.unwrap_or_else(|_| {
-            webr::db::Page::new(vec![], 0, page, page_size)
-        });
-        webr::Json(p)
+        let p = self.todo_service.find_page(pager).await?;
+        Ok(webr::Json(p))
     }
 
     /// GET /api/todos/page/search?title=...&done=...&page=1&page_size=10 — 条件分页
@@ -568,16 +529,14 @@ impl TodoController {
     async fn search_page_todos(
         &self,
         webr::Query(params): webr::Query<SearchParams>,
-    ) -> webr::Json<webr::db::Page<Todo>> {
+    ) -> webr::WebrResult<webr::Json<webr::db::Page<Todo>>> {
         let title = params.title.as_deref();
         let done = params.done;
         let page = params.page.unwrap_or(1);
         let page_size = params.page_size.unwrap_or(10);
         let pager = webr::db::Pagination::new(page, page_size);
-        let p = self.todo_service.search_page(title, done, pager).await.unwrap_or_else(|_| {
-            webr::db::Page::new(vec![], 0, page, page_size)
-        });
-        webr::Json(p)
+        let p = self.todo_service.search_page(title, done, pager).await?;
+        Ok(webr::Json(p))
     }
 }
 

@@ -40,6 +40,7 @@ inventory = "0.3"
 toml = "0.8"
 validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
+sea-query = "0.32"
 
 [features]
 default = []
