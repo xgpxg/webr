@@ -2,7 +2,6 @@
 title = "WebR 框架文档"
 authors = ["wxg"]
 language = "zh"
-multilingual = false
 src = "."
 
 [output.html]
