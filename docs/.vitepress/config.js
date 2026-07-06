@@ -2,6 +2,7 @@ export default {
     title: 'WebR Framework',
     description: 'A Spring Boot-inspired web framework for Rust',
     base: '/webr/',
+    logo: '/logo.png',
     themeConfig: {
         nav: [
             {text: '首页', link: '/'},
