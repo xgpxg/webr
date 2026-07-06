@@ -4,6 +4,7 @@ export default {
     base: '/webr/',
     themeConfig: {
         logo: '/logo.png',
+        siteTitle: false,
         nav: [
             {text: '首页', link: '/'},
             {text: '指南', link: '/quick-start'}
