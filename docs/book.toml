@@ -5,7 +5,7 @@ language = "zh"
 src = "."
 
 [output.html]
-default-theme = "ayu"
-preferred-dark-theme = "ayu"
+default-theme = "coal"
+preferred-dark-theme = "coal"
 git-repository-url = "https://github.com/xgpxg/webr"
 edit-url-template = "https://github.com/xgpxg/webr/edit/main/docs/{path}"
