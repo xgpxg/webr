@@ -52,13 +52,13 @@ pub fn expand_config(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        // 自动注册：启动时由 inventory 收集
+        // Auto-register: collected at startup by inventory
         ::webr::inventory::submit! {
             ::webr::ConfigEntry {
-                register: |__webr_toml: &::webr::toml::Value, __webr_ctx: &mut ::webr::ApplicationContext| {
+                register: |__webr_toml: &::webr::toml::Value, __webr_ctx: &mut ::webr::ApplicationContext<::webr::Error>| {
                     let __webr_section = #get_section;
                     let __webr_instance: #struct_name = ::serde::Deserialize::deserialize(__webr_section)
-                        .map_err(|e| ::webr::Error::ConfigError(
+                        .map_err(|e| ::webr::FrameworkError::ConfigError(
                             ::std::format!("Failed to parse [{}]: {}", #prefix, e)
                         ))?;
                     __webr_ctx.provide(__webr_instance)

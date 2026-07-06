@@ -586,7 +586,11 @@ impl Middleware for PanicRecovery {
             Err(panic_payload) => {
                 let msg = extract_panic_message(&*panic_payload);
                 tracing::error!("Panic in handler {} {}: {}", method, uri, msg);
-                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+                let body = serde_json::json!({
+                    "code": 500u16,
+                    "message": msg,
+                });
+                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(body)).into_response()
             }
         }
     }

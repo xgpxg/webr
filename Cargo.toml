@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     ".",
     "crates/webr-core",
+    "crates/webr-web",
     "crates/webr-db",
     "crates/webr-macros",
     "crates/webr-middleware",
@@ -11,7 +12,6 @@ members = [
     "examples/orm",
     "examples/file-upload",
     "examples/middleware",
-    "examples/validation",
     "examples/sse",
     "examples/cache",
 ]
@@ -26,6 +26,7 @@ authors = ["wxg"]
 
 [dependencies]
 webr-core = { version = "0.1.0", path = "crates/webr-core" }
+webr-web = { version = "0.1.0", path = "crates/webr-web" }
 webr-db = { version = "0.1.0", path = "crates/webr-db", optional = true }
 webr-cache = { version = "0.1.0", path = "crates/webr-cache", optional = true }
 webr-macros = { version = "0.1.0", path = "crates/webr-macros" }
@@ -38,7 +39,6 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 inventory = "0.3"
 toml = "0.8"
-validator = { version = "0.20", features = ["derive"] }
 async-trait = "0.1"
 sea-query = { version = "0.32", optional = true }
 

@@ -2,36 +2,42 @@ use std::any::{Any, TypeId};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use crate::component::{Component, ComponentRegistration};
-use crate::error::Error;
+use crate::component::Component;
+use crate::error::FrameworkError;
 use crate::inject::Inject;
 
-/// 组件工厂函数：接收容器引用以解析依赖，返回类型擦除的组件实例。
-/// 使用 `FnOnce` 保证每个工厂在 `build()` 阶段仅被消费一次。
-pub(crate) type FactoryFn =
-    Box<dyn FnOnce(&ApplicationContext) -> Result<Box<dyn Any + Send + Sync>, Error> + Send + Sync>;
+/// Component factory: resolves dependencies from the container and returns a type-erased instance.
+/// Each factory is consumed exactly once during `build()`.
+pub type FactoryFn<E> =
+    Box<dyn FnOnce(&ApplicationContext<E>) -> Result<Box<dyn Any + Send + Sync>, E> + Send + Sync>;
 
-/// IoC 容器，管理所有组件的生命周期。
+/// IoC container managing component lifecycle.
 ///
-/// 组件注册阶段仅存储工厂函数与依赖元数据，不立即实例化；
-/// 调用 [`build()`](Self::build) 时通过 Kahn 拓扑排序确定构建顺序，
-/// 按依赖关系依次实例化，确保被依赖组件先于依赖方就绪。
-pub struct ApplicationContext {
-    /// 已实例化的组件单例，`build()` 后所有组件均可通过 `TypeId` 查找
+/// Registration phase stores factory functions and dependency metadata only;
+/// calling [`build()`](Self::build) triggers Kahn topological sort to determine
+/// build order, then instantiates components in dependency order.
+///
+/// Generic over error type `E` so that:
+/// - webr-web uses `ApplicationContext<Error>` (user-facing HTTP errors)
+/// - Non-web consumers can use any error type
+pub struct ApplicationContext<E: std::error::Error + Send + Sync + 'static> {
+    /// Instantiated component singletons, keyed by TypeId
     instances: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
-    /// 待消费的组件工厂函数，`build()` 过程中逐个 `remove` 消费
-    factories: HashMap<TypeId, FactoryFn>,
-    /// 组件依赖关系图：`type_id → 该组件所依赖的 type_id 列表`
+    /// Factory functions consumed during build
+    factories: HashMap<TypeId, FactoryFn<E>>,
+    /// Dependency graph: type_id → list of required type_ids
     dep_graph: HashMap<TypeId, Vec<TypeId>>,
-    /// 组件名称映射，用于错误信息中展示可读的组件名
+    /// Human-readable component names for error messages
     names: HashMap<TypeId, &'static str>,
-    /// 组件注册顺序，用于拓扑排序初始化所有节点
+    /// Registration order for topological sort initialization
     registration_order: Vec<TypeId>,
-    /// 标记容器是否已完成构建，防止重复 `build()`
+    /// Whether build() has been called
     built: bool,
+    /// Phantom data for E (required since E only appears in FactoryFn<E>)
+    _error: std::marker::PhantomData<E>,
 }
 
-impl ApplicationContext {
+impl<E: std::error::Error + Send + Sync + 'static> ApplicationContext<E> {
     pub fn new() -> Self {
         Self {
             instances: HashMap::new(),
@@ -40,12 +46,13 @@ impl ApplicationContext {
             names: HashMap::new(),
             registration_order: Vec::new(),
             built: false,
+            _error: std::marker::PhantomData,
         }
     }
 
-    /// 注册一个组件描述符，由 `#[component]` 宏生成代码调用。
-    /// 仅存储工厂函数与依赖元数据，不触发实例化。
-    pub fn register(&mut self, registration: ComponentRegistration) {
+    /// Register a component descriptor. Called by `#[component]` macro generated code.
+    /// Stores factory function and dependency metadata without triggering instantiation.
+    pub fn register(&mut self, registration: crate::component::ComponentRegistration<E>) {
         let type_id = registration.type_id;
         self.names.insert(type_id, registration.name);
         self.dep_graph.insert(type_id, registration.dependencies);
@@ -53,38 +60,43 @@ impl ApplicationContext {
         self.registration_order.push(type_id);
     }
 
-    /// 批量注册
-    pub fn register_all(&mut self, registrations: impl IntoIterator<Item = ComponentRegistration>) {
+    /// Batch registration
+    pub fn register_all(
+        &mut self,
+        registrations: impl IntoIterator<Item = crate::component::ComponentRegistration<E>>,
+    ) {
         for reg in registrations {
             self.register(reg);
         }
     }
 
-    /// 直接注册一个已构建的实例，跳过工厂构建流程。
-    /// 适用于框架内部手动注入的对象（如应用配置）。
-    pub fn provide<T: Component>(&mut self, instance: T) -> Result<(), Error> {
+    /// Register a pre-built instance directly, bypassing the factory.
+    /// Used for framework-internal objects (e.g., application config).
+    pub fn provide<T: Component>(&mut self, instance: T) -> Result<(), FrameworkError> {
         let type_id = TypeId::of::<T>();
         if self.instances.contains_key(&type_id) {
-            return Err(Error::DuplicateComponent(T::component_name()));
+            return Err(FrameworkError::DuplicateComponent(T::component_name()));
         }
         self.names.insert(type_id, T::component_name());
         self.instances.insert(type_id, Arc::new(instance));
         Ok(())
     }
 
-    // ─── 装配 API ──────────────────────────────────────────
+    // ─── Build API ──────────────────────────────────────────
 
-    /// 构建所有已注册的组件。
-    /// 先执行拓扑排序，再按顺序消费工厂函数完成实例化。
-    /// 已通过 [`provide`](Self::provide) 注册的实例会被跳过。
-    pub fn build(&mut self) -> Result<(), Error> {
+    /// Build all registered components.
+    /// Performs topological sort, then consumes factory functions to instantiate.
+    /// Instances registered via [`provide`](Self::provide) are skipped.
+    pub fn build(&mut self) -> Result<(), E>
+    where
+        E: From<FrameworkError>,
+    {
         if self.built {
             return Ok(());
         }
         let order = self.topological_sort()?;
 
         for type_id in order {
-            // 已经通过 provide 手动注册的，跳过
             if self.instances.contains_key(&type_id) {
                 continue;
             }
@@ -92,7 +104,7 @@ impl ApplicationContext {
             let factory = self
                 .factories
                 .remove(&type_id)
-                .ok_or_else(|| Error::Internal("Missing factory during build".into()))?;
+                .ok_or_else(|| FrameworkError::ConfigError("Missing factory during build".into()))?;
 
             let instance = factory(self)?;
             self.instances.insert(type_id, Arc::from(instance));
@@ -102,49 +114,53 @@ impl ApplicationContext {
         Ok(())
     }
 
-    // ─── 解析 API ──────────────────────────────────────────
+    // ─── Resolve API ──────────────────────────────────────────
 
-    /// 解析组件并返回 `Inject<T>` 智能指针包装。
-    /// 由 `#[component]` 宏生成的构造函数在 `build()` 阶段调用。
-    pub fn resolve<T: Component>(&self) -> Result<Inject<T>, Error> {
+    /// Resolve a component and return an `Inject<T>` smart pointer.
+    /// Called by `#[component]` macro generated constructors during `build()`.
+    pub fn resolve<T: Component>(&self) -> Result<Inject<T>, E>
+    where
+        E: From<FrameworkError>,
+    {
         let type_id = TypeId::of::<T>();
         let arc_any = self
             .instances
             .get(&type_id)
-            .ok_or(Error::ComponentNotFound(T::component_name()))?;
+            .ok_or_else(|| FrameworkError::ComponentNotFound(T::component_name()))?;
 
         let arc_t: Arc<T> = arc_any
             .clone()
             .downcast::<T>()
-            .map_err(|_| Error::DowncastFailed(T::component_name()))?;
+            .map_err(|_| FrameworkError::DowncastFailed(T::component_name()))?;
 
         Ok(Inject::new(arc_t))
     }
 
-    /// 解析组件并返回 `Arc<T>`，供框架内部使用（如控制器挂载路由）。
-    pub fn resolve_arc<T: Component>(&self) -> Result<Arc<T>, Error> {
+    /// Resolve and return `Arc<T>`, used internally by the framework (e.g., mounting controller routes).
+    pub fn resolve_arc<T: Component>(&self) -> Result<Arc<T>, E>
+    where
+        E: From<FrameworkError>,
+    {
         let inject = self.resolve::<T>()?;
         Ok(inject.arc())
     }
 
-    // ─── 内部方法 ──────────────────────────────────────────
+    // ─── Internal methods ──────────────────────────────────────────
 
-    /// Kahn 算法拓扑排序：根据 `dep_graph` 计算组件构建顺序，
-    /// 入度为 0 的节点（无依赖）优先输出。若存在环则返回错误。
-    fn topological_sort(&self) -> Result<Vec<TypeId>, Error> {
+    /// Kahn's algorithm topological sort: determines component build order.
+    /// Nodes with in-degree 0 (no dependencies) are processed first.
+    /// Returns error if a cycle is detected.
+    fn topological_sort(&self) -> Result<Vec<TypeId>, FrameworkError> {
         let mut in_degree: HashMap<TypeId, usize> = HashMap::new();
         let mut reverse_adj: HashMap<TypeId, Vec<TypeId>> = HashMap::new();
 
-        // 初始化所有已注册节点的入度
         for &type_id in &self.registration_order {
             in_degree.entry(type_id).or_insert(0);
         }
-        // `provide` 直接注册的实例同样参与排序（入度为 0）
         for &type_id in self.instances.keys() {
             in_degree.entry(type_id).or_insert(0);
         }
 
-        // 构建入度表与反向邻接表（dep → 依赖它的组件列表）
         for (&type_id, deps) in &self.dep_graph {
             for &dep in deps {
                 if in_degree.contains_key(&dep) {
@@ -154,7 +170,6 @@ impl ApplicationContext {
             }
         }
 
-        // 入度为 0 的节点（无未满足依赖）入队
         let mut queue: VecDeque<TypeId> = in_degree
             .iter()
             .filter(|(_, &deg)| deg == 0)
@@ -177,14 +192,13 @@ impl ApplicationContext {
             }
         }
 
-        // 排序结果少于节点数，说明存在环
         if sorted.len() != in_degree.len() {
             let cycle_names: Vec<&str> = in_degree
                 .keys()
                 .filter(|id| !sorted.contains(id))
                 .filter_map(|id| self.names.get(id).copied())
                 .collect();
-            return Err(Error::CircularDependency(format!(
+            return Err(FrameworkError::CircularDependency(format!(
                 "Dependency cycle detected among: {}",
                 cycle_names.join(", ")
             )));
@@ -192,9 +206,11 @@ impl ApplicationContext {
 
         Ok(sorted)
     }
+
+
 }
 
-impl Default for ApplicationContext {
+impl<E: std::error::Error + Send + Sync + 'static> Default for ApplicationContext<E> {
     fn default() -> Self {
         Self::new()
     }

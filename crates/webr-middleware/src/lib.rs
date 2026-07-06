@@ -5,4 +5,4 @@ pub mod cached_body;
 
 pub use auth::{AuthError, AuthMiddleware, Authenticator, CurrentUser, Guard, GuardMiddleware};
 pub use cached_body::{CachedBody, CachedBodyMiddleware};
-pub use webr_core::middleware::{Middleware, Next};
+pub use webr_web::middleware::{Middleware, Next};

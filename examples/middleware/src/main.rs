@@ -109,7 +109,7 @@ impl ApiController {
 // ─── 启动入口 ──────────────────────────────────────────
 
 #[webr::main]
-async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
+async fn main(app: &mut webr::AppBuilder) -> std::result::Result<(), Error> {
     // 全局中间件
     
     // Panic 恢复：捕获 panic，返回 500 而不是进程崩溃

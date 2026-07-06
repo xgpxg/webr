@@ -8,16 +8,20 @@ use syn::{Data, DeriveInput, LitInt, LitStr};
 /// 1. `IntoResponse` —— 可直接作为 handler 返回类型
 /// 2. `From<Self> for ::webr::Error` —— 支持 `?` 转换到 WebrResult
 ///
-/// 用法：
+/// # 用法
+///
 /// ```ignore
 /// #[derive(Debug, HttpError)]
 /// pub enum UserError {
-///     #[error(status = 404, message = "User not found")]
-///     NotFound(i64),
+///     #[error(status = 404, message = "User {id} not found")]
+///     NotFound { id: i64 },
 ///     #[error(status = 409)]
 ///     DuplicateEmail(String),
 /// }
 /// ```
+///
+/// 消息模板支持 `{field}` 插值（仅限命名字段变体）。
+/// 未指定 `message` 时自动将 PascalCase 变体名转为可读字符串。
 pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
     let name = &input.ident;
 
@@ -26,7 +30,6 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
             .to_compile_error();
     };
 
-    // 为每个变体生成 match arm
     let mut into_response_arms = Vec::new();
     let mut from_arms = Vec::new();
 
@@ -41,26 +44,42 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
 
         let message = message.unwrap_or_else(|| to_readable_name(&vname.to_string()));
 
-        // 忽略变体字段，用 .. 匹配
-        let pattern_self = match &variant.fields {
-            syn::Fields::Unit => quote! { Self::#vname },
-            _ => quote! { Self::#vname(..) },
-        };
-
-        let pattern_name = match &variant.fields {
-            syn::Fields::Unit => quote! { #name::#vname },
-            _ => quote! { #name::#vname(..) },
+        // 根据变体字段类型生成 match pattern 和消息表达式
+        let (pattern, message_expr) = match &variant.fields {
+            syn::Fields::Named(named) => {
+                let fields: Vec<syn::Ident> = named
+                    .named
+                    .iter()
+                    .map(|f| f.ident.as_ref().unwrap().clone())
+                    .collect();
+                let pat = quote! { { #(#fields),* } };
+                let msg = build_message_expr(&message, &fields);
+                (pat, msg)
+            }
+            syn::Fields::Unnamed(unnamed) => {
+                let bindings: Vec<_> = (0..unnamed.unnamed.len())
+                    .map(|i| syn::Ident::new(&format!("_{}", i), proc_macro2::Span::call_site()))
+                    .collect();
+                let pat = quote! { ( #(#bindings),* ) };
+                let msg = build_message_expr(&message, &bindings);
+                (pat, msg)
+            }
+            syn::Fields::Unit => {
+                let pat = quote! {};
+                let msg = quote! { #message.to_string() };
+                (pat, msg)
+            }
         };
 
         into_response_arms.push(quote! {
-            #pattern_self => (#status, #message),
+            Self::#vname #pattern => (#status, #message_expr),
         });
 
         from_arms.push(quote! {
-            #pattern_name => ::webr::Error::Http {
+            #name::#vname #pattern => ::webr::Error::Http {
                 status: ::webr::axum::http::StatusCode::from_u16(#status)
                     .unwrap_or(::webr::axum::http::StatusCode::INTERNAL_SERVER_ERROR),
-                message: #message.to_string(),
+                message: #message_expr,
             },
         });
     }
@@ -68,7 +87,7 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
     quote! {
         impl ::webr::axum::response::IntoResponse for #name {
             fn into_response(self) -> ::webr::axum::response::Response {
-                let (status, message): (u16, &str) = match self {
+                let (status, message): (u16, String) = match self {
                     #(#into_response_arms)*
                 };
                 let status_code = ::webr::axum::http::StatusCode::from_u16(status)
@@ -77,7 +96,7 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
                 struct ErrorBody { code: u16, message: String }
                 (status_code, ::webr::axum::Json(ErrorBody {
                     code: status,
-                    message: message.to_string(),
+                    message,
                 })).into_response()
             }
         }
@@ -93,6 +112,22 @@ pub fn expand_webr_error(input: DeriveInput) -> TokenStream {
 }
 
 // ─── 内部工具 ────────────────────────────────────────────
+
+/// 构建消息表达式：如果消息包含 `{field}` 占位符，生成 `format!()`；否则生成 `.to_string()`。
+fn build_message_expr(message: &str, fields: &[syn::Ident]) -> TokenStream {
+    // 检查消息中是否引用了任何绑定的字段名
+    let referenced: Vec<_> = fields
+        .iter()
+        .filter(|f| message.contains(&format!("{{{}}}", f)))
+        .collect();
+
+    if referenced.is_empty() {
+        quote! { #message.to_string() }
+    } else {
+        let msg_lit = message;
+        quote! { format!(#msg_lit) }
+    }
+}
 
 /// 解析 #[error(status = N, message = "...")] 属性
 fn parse_error_attr(

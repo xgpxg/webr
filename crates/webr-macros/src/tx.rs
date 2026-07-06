@@ -76,7 +76,7 @@ fn wrap_body_with_self(
                 webr::db::scope_txn(__existing, async { #body }).await
             } else {
                 let __txn = webr::db::DbTransaction::begin(__pool).await
-                    .map_err(|e| ::webr::Error::Internal(e.to_string()))?;
+                    .map_err(|e| ::webr::Error::Database(Box::new(e)))?;
                 let __r = {
                     let __guard = webr::db::scope_txn(&__txn, async { #body });
                     let __result = __guard.await;
@@ -104,7 +104,7 @@ fn wrap_body_with_param(
                 webr::db::scope_txn(__existing, async { #body }).await
             } else {
                 let __txn = webr::db::DbTransaction::begin(__pool).await
-                    .map_err(|e| ::webr::Error::Internal(e.to_string()))?;
+                    .map_err(|e| ::webr::Error::Database(Box::new(e)))?;
                 let __r = {
                     let __guard = webr::db::scope_txn(&__txn, async { #body });
                     let __result = __guard.await;
@@ -184,7 +184,7 @@ fn commit_rollback_tokens(output: &ReturnType) -> TokenStream {
     if is_result_return(output) {
         quote! {
             match &__result {
-                Ok(_) => { __txn.commit().await.map_err(|e| ::webr::Error::Internal(e.to_string()))?; }
+                Ok(_) => { __txn.commit().await.map_err(|e| ::webr::Error::Database(Box::new(e)))?; }
                 Err(_) => { let _ = __txn.rollback().await; }
             }
         }

@@ -2,21 +2,12 @@
 name = "webr-core"
 version = "0.1.0"
 edition = "2021"
-description = "Core module for the Webr framework, providing dependency injection, routing, middleware, configuration, and application lifecycle management"
+description = "Core module for the Webr framework, providing dependency injection, component management, and configuration"
 repository = "https://github.com/xgpxg/webr"
 authors = ["wxg"]
 
 [dependencies]
-axum = { version = "0.8", features = ["multipart"] }
-tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 tracing = "0.1"
-async-trait = "0.1"
-inventory = "0.3"
-futures-util = "0.3"
-toml = "0.8"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
-validator = { version = "0.20", features = ["derive"] }
-tokio-util = { version = "0.7", features = ["io"] }
+toml = "0.8"

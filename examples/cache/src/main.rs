@@ -11,11 +11,9 @@ pub struct User {
     pub email: String,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
-    #[validate(length(min = 1, max = 50))]
     pub name: String,
-    #[validate(email)]
     pub email: String,
 }
 
@@ -42,7 +40,7 @@ impl CacheController {
 
     /// GET /users/{id} — 获取用户（带缓存）
     #[get("/users/{id}")]
-    async fn get_user(&self, Path(id): Path<i64>) -> WebrResult<Json<User>> {
+    async fn get_user(&self, Path(id): Path<i64>) -> Result<Json<User>> {
         let key = format!("user:{id}");
 
         // 优先从缓存读取
@@ -62,7 +60,7 @@ impl CacheController {
 
     /// POST /users — 创建用户并缓存
     #[post("/users")]
-    async fn create_user(&self, Json(body): Json<CreateUserRequest>) -> WebrResult<Json<User>> {
+    async fn create_user(&self, Json(body): Json<CreateUserRequest>) -> Result<Json<User>> {
         // 模拟创建用户
         let user = User {
             id: 1,
@@ -107,7 +105,7 @@ impl CacheController {
     // ─── 内部方法 ─────────────────────────────────────────
 
     /// 模拟数据库查询（实际项目中替换为真实查询）
-    async fn mock_find_user(&self, id: i64) -> Result<User, Error> {
+    async fn mock_find_user(&self, id: i64) -> Result<User> {
         if id > 0 && id <= 3 {
             Ok(User {
                 id,
@@ -126,7 +124,7 @@ impl CacheController {
 // ─── 启动入口 ─────────────────────────────────────────────
 
 #[webr::main]
-async fn main(app: &mut AppBuilder) -> Result<(), Error> {
+async fn main(app: &mut AppBuilder) -> Result<()> {
     app.unified_response();
     // Cache 自动从 [cache] 配置初始化，无需手动 provide
     Ok(())

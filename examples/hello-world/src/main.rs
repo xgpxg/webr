@@ -60,7 +60,7 @@ impl HelloController {
     }
 
     #[get("/items/{id}")]
-    async fn get_item(&self, Path(id): Path<i64>) -> WebrResult<Json<Item>> {
+    async fn get_item(&self, Path(id): Path<i64>) -> Result<Json<Item>> {
         if id > 0 && id <= 2 {
             Ok(Json(Item {
                 id,
@@ -101,13 +101,13 @@ impl HelloController {
     }
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize)]
 pub struct CreateItemRequest {
     pub name: String,
 }
 
 #[main]
-async fn main(app: &mut AppBuilder) -> Result<(), Error> {
+async fn main(app: &mut AppBuilder) -> std::result::Result<(), Error> {
     app.unified_response();
     app.on_shutdown(|_| async move {
         println!("Shutting down...");

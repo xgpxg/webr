@@ -8,7 +8,7 @@ authors = ["wxg"]
 
 [dependencies]
 webr-core = { version = "0.1.0", path = "../webr-core" }
+webr-web = { version = "0.1.0", path = "../webr-web" }
 axum = "0.8"
 async-trait = "0.1"
 bytes = "1"
-serde_json = "1"

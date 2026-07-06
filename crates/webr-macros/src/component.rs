@@ -61,13 +61,13 @@ pub fn expand_component(item: TokenStream) -> TokenStream {
         impl #struct_name {
             #[doc(hidden)]
             pub fn __webr_construct(
-                ctx: &::webr::ApplicationContext,
+                ctx: &::webr::ApplicationContext<::webr::Error>,
             ) -> ::std::result::Result<Self, ::webr::Error> {
                 ::std::result::Result::Ok(Self { #(#construct_fields,)* })
             }
 
             #[doc(hidden)]
-            pub fn __webr_registration() -> ::webr::ComponentRegistration {
+            pub fn __webr_registration() -> ::webr::ComponentRegistration<::webr::Error> {
                 ::webr::ComponentRegistration {
                     type_id: ::std::any::TypeId::of::<Self>(),
                     name: #struct_name_str,

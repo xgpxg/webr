@@ -31,3 +31,4 @@ impl From<sqlx::Error> for DbError {
         Self::Sqlx(e)
     }
 }
+

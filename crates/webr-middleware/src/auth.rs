@@ -4,8 +4,8 @@ use axum::extract::{FromRequestParts, Request};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
-use webr_core::error::Error;
-use webr_core::middleware::{Middleware, Next};
+use webr_web::error::Error;
+use webr_web::middleware::{Middleware, Next};
 
 use crate::cached_body::CachedBody;
 
@@ -109,13 +109,11 @@ impl<A: Authenticator> Middleware for AuthMiddleware<A> {
                 req.extensions_mut().insert(identity);
                 next.run(req).await
             }
-            Err(e) => {
-                let body = serde_json::json!({
-                    "code": 401,
-                    "message": e.0,
-                });
-                (StatusCode::UNAUTHORIZED, axum::Json(body)).into_response()
+            Err(e) => Error::Http {
+                status: StatusCode::UNAUTHORIZED,
+                message: e.0,
             }
+            .into_response()
         }
     }
 }

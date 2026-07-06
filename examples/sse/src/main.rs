@@ -132,7 +132,7 @@ impl SseController {
 // ─── 启动入口 ────────────────────────────────────────────────
 
 #[webr::main]
-async fn main(_app: &mut webr::AppBuilder) -> Result<(), Error> {
+async fn main(_app: &mut webr::AppBuilder) -> std::result::Result<(), Error> {
     println!("SSE Demo: http://localhost:3000");
     Ok(())
 }

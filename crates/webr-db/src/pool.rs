@@ -2,10 +2,33 @@
 // Suppress unreachable_code warnings — this is expected for the no-feature case.
 #![allow(unreachable_code)]
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::config::DatasourceConfig;
 use crate::error::DbError;
+
+/// Global database connection pool singleton.
+/// Set once during framework initialization; read by generated `#[entity]` code.
+static GLOBAL_POOL: OnceLock<DbPool> = OnceLock::new();
+
+/// Store the global database connection pool.
+///
+/// Called once during framework startup (typically by `auto_init`).
+/// Subsequent calls are silently ignored — the first pool wins.
+pub fn set_pool(pool: DbPool) {
+    let _ = GLOBAL_POOL.set(pool);
+}
+
+/// Obtain a reference to the global database connection pool.
+///
+/// # Panics
+/// Panics if [`set_pool`] has not been called yet.
+pub fn get_pool() -> &'static DbPool {
+    GLOBAL_POOL
+        .get()
+        .expect("database pool not initialized — call set_pool() or enable auto-init")
+}
 
 /// Database driver identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,10 +44,13 @@ pub enum Driver {
 /// Unified database connection pool.
 ///
 /// Wraps sqlx connection pools behind a single type.
+/// Clone is cheap — inner pools are reference-counted (Arc).
+#[derive(Clone)]
 pub struct DbPool {
     pub(crate) inner: PoolInner,
 }
 
+#[derive(Clone)]
 pub(crate) enum PoolInner {
     #[cfg(feature = "postgres")]
     Postgres(sqlx::PgPool),

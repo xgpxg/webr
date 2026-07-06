@@ -3,7 +3,8 @@ use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
-use webr_core::middleware::{Middleware, Next};
+use webr_web::error::Error;
+use webr_web::middleware::{Middleware, Next};
 
 /// 缓存的请求体，由 [`CachedBodyMiddleware`] 写入 request extensions，
 /// 供下游中间件读取。
@@ -31,7 +32,11 @@ impl Middleware for CachedBodyMiddleware {
         let bytes = match axum::body::to_bytes(body, usize::MAX).await {
             Ok(b) => b,
             Err(e) => {
-                return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+                return Error::Http {
+                    status: StatusCode::BAD_REQUEST,
+                    message: e.to_string(),
+                }
+                .into_response();
             }
         };
 

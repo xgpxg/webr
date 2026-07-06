@@ -2,19 +2,15 @@ use crate::error::Error;
 use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use validator::Validate;
 
-/// 提取并校验：将 axum 提取错误转为 `Error::Http`，然后执行 `Validate`
-fn extract_and_validate<T: Validate>(
+fn extract_value<T>(
     value: Result<T, impl std::fmt::Display>,
     kind: &'static str,
 ) -> Result<T, Error> {
-    let value = value.map_err(|e| Error::Http {
+    value.map_err(|e| Error::Http {
         status: StatusCode::BAD_REQUEST,
         message: format!("Invalid {kind}: {e}"),
-    })?;
-    value.validate()?;
-    Ok(value)
+    })
 }
 
 /// 路径参数提取器，对应 `#[get("/users/{id}")]` 中的 `{id}`。
@@ -55,21 +51,18 @@ where
     }
 }
 
-/// 查询参数提取器，对应 `?page=1&size=10`，自动校验。
+/// 查询参数提取器，对应 `?page=1&size=10`。
 ///
 /// # Example
 /// ```rust
-/// #[derive(Deserialize, Validate)]
+/// #[derive(Deserialize)]
 /// struct PageQuery {
-///     #[validate(range(min = 1))]
 ///     page: u32,
-///     #[validate(range(min = 1, max = 100))]
 ///     size: u32,
 /// }
 ///
 /// #[get("/items")]
 /// async fn list(&self, webr::Query(q): webr::Query<PageQuery>) -> webr::Json<Vec<Item>> {
-///     // q.page, q.size 已校验通过
 ///     // ...
 /// }
 /// ```
@@ -77,7 +70,7 @@ pub struct Query<T>(pub T);
 
 impl<T, S> axum::extract::FromRequestParts<S> for Query<T>
 where
-    T: DeserializeOwned + Validate + Send,
+    T: DeserializeOwned + Send,
     S: Send + Sync,
 {
     type Rejection = Error;
@@ -86,31 +79,28 @@ where
         parts: &mut axum::http::request::Parts,
         state: &S,
     ) -> Result<Self, Self::Rejection> {
-        extract_and_validate(
+        let value = extract_value(
             axum::extract::Query::<T>::from_request_parts(parts, state)
                 .await
                 .map(|q| q.0),
             "query parameter",
-        )
-        .map(Self)
+        )?;
+        Ok(Self(value))
     }
 }
 
-/// JSON 请求体提取器，自动反序列化并校验。
+/// JSON 请求体提取器，自动反序列化。
 ///
 /// # Example
 /// ```rust
-/// #[derive(Deserialize, Validate)]
+/// #[derive(Deserialize)]
 /// struct CreateUser {
-///     #[validate(length(min = 1, max = 50))]
 ///     name: String,
-///     #[validate(email)]
 ///     email: String,
 /// }
 ///
 /// #[post("/users")]
 /// async fn create(&self, webr::Json(body): webr::Json<CreateUser>) -> webr::Json<User> {
-///     // body 已反序列化并校验通过
 ///     // ...
 /// }
 /// ```
@@ -118,19 +108,19 @@ pub struct Json<T>(pub T);
 
 impl<T, S> axum::extract::FromRequest<S> for Json<T>
 where
-    T: DeserializeOwned + Validate,
+    T: DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = Error;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
-        extract_and_validate(
+        let value = extract_value(
             axum::extract::Json::<T>::from_request(req, state)
                 .await
                 .map(|j| j.0),
             "request body",
-        )
-        .map(Self)
+        )?;
+        Ok(Self(value))
     }
 }
 
@@ -244,21 +234,18 @@ impl HeaderMapExt for axum::http::HeaderMap {
     }
 }
 
-/// 表单提取器，解析 `application/x-www-form-urlencoded` 请求体，自动校验。
+/// 表单提取器，解析 `application/x-www-form-urlencoded` 请求体。
 ///
 /// # Example
 /// ```rust
-/// #[derive(Deserialize, Validate)]
+/// #[derive(Deserialize)]
 /// struct LoginForm {
-///     #[validate(length(min = 1))]
 ///     username: String,
-///     #[validate(length(min = 6))]
 ///     password: String,
 /// }
 ///
 /// #[post("/login")]
 /// async fn login(&self, webr::Form(form): webr::Form<LoginForm>) -> webr::Json<Token> {
-///     // form 已反序列化并校验通过
 ///     // ...
 /// }
 /// ```
@@ -266,16 +253,16 @@ pub struct Form<T>(pub T);
 
 impl<T, S> axum::extract::FromRequest<S> for Form<T>
 where
-    T: DeserializeOwned + Validate,
+    T: DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = Error;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
-        extract_and_validate(
+        let value = extract_value(
             axum::Form::<T>::from_request(req, state).await.map(|f| f.0),
             "form data",
-        )
-        .map(Self)
+        )?;
+        Ok(Self(value))
     }
 }

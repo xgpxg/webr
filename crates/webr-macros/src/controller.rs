@@ -79,13 +79,13 @@ fn expand_controller_struct(item_struct: ItemStruct) -> TokenStream {
         impl #struct_name {
             #[doc(hidden)]
             pub fn __webr_construct(
-                ctx: &::webr::ApplicationContext,
+                ctx: &::webr::ApplicationContext<::webr::Error>,
             ) -> ::std::result::Result<Self, ::webr::Error> {
                 ::std::result::Result::Ok(Self { #(#construct_fields,)* })
             }
 
             #[doc(hidden)]
-            pub fn __webr_registration() -> ::webr::ComponentRegistration {
+            pub fn __webr_registration() -> ::webr::ComponentRegistration<::webr::Error> {
                 ::webr::ComponentRegistration {
                     type_id: ::std::any::TypeId::of::<Self>(),
                     name: #struct_name_str,
@@ -182,9 +182,9 @@ fn expand_controller_impl(item_impl: ItemImpl, prefix: Option<String>) -> TokenS
             }
         }
 
-        /// 自动挂载路由的辅助函数（类型擦除为 fn pointer）
+        /// Auto-mount routes helper (type-erased fn pointer)
         fn #mount_fn_name(
-            ctx: &::webr::ApplicationContext,
+            ctx: &::webr::ApplicationContext<::webr::Error>,
             router: &mut ::webr::WebrRouter,
         ) -> ::std::result::Result<(), ::webr::Error> {
             let controller: ::std::sync::Arc<#self_ty> = ctx.resolve_arc()?;

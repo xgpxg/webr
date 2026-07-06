@@ -24,7 +24,7 @@ pub async fn auto_init(app: &mut AppBuilder) -> Result<(), Error> {
             if let Ok(cache_config) = app.config().get::<webr_cache::CacheConfig>("cache") {
                 let cache = crate::cache_adapter::Cache::from_config(&cache_config)
                     .await
-                    .map_err(|e| Error::Internal(e.to_string()))?;
+                    .map_err(crate::__cache_error)?;
                 app.provide(cache)?;
                 tracing::info!("Cache auto-initialized with backend: {}", cache_config.backend);
             }
@@ -36,7 +36,9 @@ pub async fn auto_init(app: &mut AppBuilder) -> Result<(), Error> {
             if let Ok(ds_config) = app.config().get::<webr_db::DatasourceConfig>("datasource") {
                 let pool = crate::db_adapter::DbPool::from_config(&ds_config)
                     .await
-                    .map_err(|e| Error::Internal(e.to_string()))?;
+                    .map_err(crate::__db_error)?;
+                // Store pool globally for #[entity] generated code
+                webr_db::set_pool(pool.inner().clone());
                 app.provide(pool)?;
                 tracing::info!(
                     "Database pool auto-initialized with driver: {}",

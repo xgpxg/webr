@@ -1,0 +1,12 @@
+[book]
+title = "WebR 框架文档"
+authors = ["wxg"]
+language = "zh"
+multilingual = false
+src = "."
+
+[output.html]
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/xgpxg/webr"
+edit-url-template = "https://github.com/xgpxg/webr/edit/main/docs/{path}"

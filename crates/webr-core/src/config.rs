@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::error::Error;
+use crate::error::FrameworkError;
 
 /// 服务器配置，对应 `[server]` 配置节
 #[derive(Debug, Clone, Deserialize)]
@@ -59,15 +59,6 @@ impl Default for LogConfig {
     }
 }
 
-/// 配置条目，由 `#[config]` 宏通过 `inventory::submit!` 提交，
-/// 启动时由 `AppBuilder::build()` 收集并注册到 IoC 容器。
-pub struct ConfigEntry {
-    /// 从 toml 根节点解析配置类型并注册到 IoC 容器
-    pub register: fn(&toml::Value, &mut crate::context::ApplicationContext) -> Result<(), Error>,
-}
-
-inventory::collect!(ConfigEntry);
-
 /// 配置加载器，支持多文件合并与环境变量覆盖。
 ///
 /// 优先级（后者覆盖前者）：
@@ -86,7 +77,12 @@ pub struct ConfigLoader {
 
 impl ConfigLoader {
     /// 按优先级加载配置源，返回 `ConfigLoader` 实例
-    pub fn load() -> Result<Self, Error> {
+    ///
+    /// 配置目录查找顺序：
+    /// 1. `WEBR_CONFIG_DIR` 环境变量
+    /// 2. 从可执行文件位置向上查找 `config/` 目录
+    /// 3. 当前工作目录下的 `config/`
+    pub fn load() -> Result<Self, FrameworkError> {
         // 加载 .env 文件（忽略不存在的错误）
         let _ = dotenvy::dotenv();
 
@@ -96,15 +92,18 @@ impl ConfigLoader {
         let mut values = toml::Value::Table(toml::Table::new());
         let mut files_loaded = Vec::new();
 
+        // 确定配置目录
+        let config_dir = resolve_config_dir();
+
         // 1. config/application.toml
-        let base_path = "config/application.toml";
-        if let Some(base) = read_toml_file(base_path)? {
+        let base_path = format!("{}/application.toml", config_dir);
+        if let Some(base) = read_toml_file(&base_path)? {
             merge_toml(&mut values, base);
-            files_loaded.push(base_path.to_string());
+            files_loaded.push(base_path);
         }
 
         // 2. config/application-{profile}.toml
-        let profile_path = format!("config/application-{profile}.toml");
+        let profile_path = format!("{}/application-{}.toml", config_dir, profile);
         if let Some(profile_val) = read_toml_file(&profile_path)? {
             merge_toml(&mut values, profile_val);
             files_loaded.push(profile_path);
@@ -139,14 +138,14 @@ impl ConfigLoader {
     }
 
     /// 将指定配置节反序列化为类型 `T`
-    pub fn get<T: for<'de> Deserialize<'de>>(&self, section: &str) -> Result<T, Error> {
+    pub fn get<T: for<'de> Deserialize<'de>>(&self, section: &str) -> Result<T, FrameworkError> {
         let val = self
             .values
             .get(section)
             .cloned()
             .unwrap_or_else(|| toml::Value::Table(toml::Table::new()));
         T::deserialize(val)
-            .map_err(|e| Error::ConfigError(format!("Failed to parse [{section}]: {e}")))
+            .map_err(|e| FrameworkError::ConfigError(format!("Failed to parse [{section}]: {e}")))
     }
 
     /// 返回原始 toml 值，供 `#[config]` 宏生成的代码使用
@@ -155,26 +154,52 @@ impl ConfigLoader {
     }
 
     /// 解析 `[server]` 配置节为 `ServerConfig`
-    pub(crate) fn server_config(&self) -> ServerConfig {
+    pub fn server_config(&self) -> ServerConfig {
         self.get::<ServerConfig>("server").unwrap_or_default()
     }
 }
 
 /// 读取 TOML 文件，文件不存在返回 `None`
-fn read_toml_file(path: &str) -> Result<Option<toml::Value>, Error> {
+fn read_toml_file(path: &str) -> Result<Option<toml::Value>, FrameworkError> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
         }
         Err(e) => {
-            return Err(Error::ConfigError(format!("Cannot read {path}: {e}")));
+            return Err(FrameworkError::ConfigError(format!("Cannot read {path}: {e}")));
         }
     };
     let val = content
         .parse::<toml::Value>()
-        .map_err(|e| Error::ConfigError(format!("Invalid TOML in {path}: {e}")))?;
+        .map_err(|e| FrameworkError::ConfigError(format!("Invalid TOML in {path}: {e}")))?;
     Ok(Some(val))
+}
+
+/// 解析配置目录：
+/// 1. `WEBR_CONFIG_DIR` 环境变量
+/// 2. 从可执行文件位置向上查找 `config/` 目录
+/// 3. 当前工作目录下的 `config/`
+fn resolve_config_dir() -> String {
+    // 1. 环境变量优先
+    if let Ok(dir) = std::env::var("WEBR_CONFIG_DIR") {
+        return dir;
+    }
+
+    // 2. 从可执行文件位置向上查找
+    if let Ok(exe_path) = std::env::current_exe() {
+        let mut dir = exe_path.parent();
+        while let Some(d) = dir {
+            let config_path = d.join("config");
+            if config_path.is_dir() {
+                return config_path.to_string_lossy().to_string();
+            }
+            dir = d.parent();
+        }
+    }
+
+    // 3. 回退到当前工作目录
+    "config".to_string()
 }
 
 /// 深度合并 toml 值，`source` 中的同名键覆盖 `target`

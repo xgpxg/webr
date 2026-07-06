@@ -10,7 +10,6 @@ mod component;
 mod sql_macro;
 mod sql_parser;
 mod tx;
-mod validate;
 
 /// 标记一个 struct 或 impl block 为 Controller。
 /// - 在 struct 上：生成 Component 实现 + 构造函数 + 注册描述符
@@ -82,10 +81,16 @@ pub fn derive_http_error(item: TokenStream) -> TokenStream {
 
 /// 标记一个 struct 为数据库实体，自动生成 CRUD 方法和 sea-query Iden 枚举。
 ///
-/// 用法：`#[entity(table = "users")]`，字段上可用 `#[primary_key]` 标记主键。
+/// 用法：`#[entity(table = "users")]`
+/// 字段属性：
+/// - `#[column(pk)]` — 标记主键（必须）
+/// - `#[column(name = "col")]` — 自定义列名映射（默认使用字段名）
+/// - `#[column(pk, name = "col")]` — 两者组合
 #[proc_macro_attribute]
 pub fn entity(attr: TokenStream, item: TokenStream) -> TokenStream {
-    entity::expand_entity(attr.into(), item.into()).into()
+    entity::expand_entity(attr.into(), item.into())
+        .unwrap_or_else(|e| e.into_compile_error())
+        .into()
 }
 
 /// 在实体 impl 方法上标注 SQL 查询，支持 MyBatis 风格的动态标签。
@@ -95,15 +100,6 @@ pub fn entity(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     sql_macro::expand_sql(attr.into(), item.into()).into()
-}
-
-/// 参数校验 derive 宏：为 struct 生成 `Validate` trait 实现。
-///
-/// 支持的校验类型：`length`, `range`, `email`, `url`, `contains`, `does_not_contain`,
-/// `required`, `must_match`, `regex`, `custom`, `nested`
-#[proc_macro_derive(Validate, attributes(validate))]
-pub fn derive_validate(item: TokenStream) -> TokenStream {
-    validate::expand_validate(item.into()).into()
 }
 
 /// 声明式事务注解：将 impl block 中的所有 `async fn` 方法包装在事务中。

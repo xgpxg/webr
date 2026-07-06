@@ -4,6 +4,11 @@ use syn::{FnArg, ImplItemFn, LitStr, Pat, ReturnType, Type};
 
 use crate::sql_parser::{self, ParamRef, SqlSegment};
 
+/// 生成错误转换代码：DbError → webr::Error::Database
+fn err_map() -> TokenStream {
+    quote! { .map_err(|e| ::webr::Error::Database(Box::new(e))) }
+}
+
 pub fn expand_sql(attr: TokenStream, item: TokenStream) -> TokenStream {
     let method: ImplItemFn =
         syn::parse2(item).expect("#[sql] must be applied to a method in an impl block");
@@ -309,6 +314,7 @@ fn generate_static_sql(
         FetchMode::Execute | FetchMode::Scalar | FetchMode::Page => unreachable!(),
     };
 
+    let __err = err_map();
     quote! {
         #sql_with_placeholders
         if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
@@ -321,11 +327,12 @@ fn generate_static_sql(
             pool.#fetch_method::<#row_type>(&sql, |q| q #( .bind(#bind_exprs) )* ).await
         };
         #result_log
-        result
+        result #__err
     }
 }
 
 fn generate_static_execute_sql(sql_build: TokenStream, bind_exprs: &[TokenStream]) -> TokenStream {
+    let __err = err_map();
     quote! {
         #sql_build
         if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
@@ -340,7 +347,7 @@ fn generate_static_execute_sql(sql_build: TokenStream, bind_exprs: &[TokenStream
         if let Ok(ref __rows) = result {
             webr::tracing::debug!(target: "webr::sql", "<== {} rows affected", __rows);
         }
-        result
+        result #__err
     }
 }
 
@@ -349,6 +356,7 @@ fn generate_static_scalar_sql(
     bind_exprs: &[TokenStream],
     row_type: &Type,
 ) -> TokenStream {
+    let __err = err_map();
     quote! {
         #sql_build
         if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
@@ -363,7 +371,7 @@ fn generate_static_scalar_sql(
         if let Ok(ref __r) = result {
             webr::tracing::debug!(target: "webr::sql", "<== {:?}", __r);
         }
-        result
+        result #__err
     }
 }
 
@@ -378,6 +386,7 @@ fn generate_static_page_sql(
         .find(|p| p.is_pagination)
         .expect("#[sql] Page<T> return type requires a Pagination parameter");
     let page_ident = syn::Ident::new(&page_param.name, proc_macro2::Span::call_site());
+    let __err = err_map();
 
     quote! {
         #sql_build
@@ -394,15 +403,15 @@ fn generate_static_page_sql(
         }
 
         if let Some(__t) = webr::db::try_get_txn() {
-            let __total = __t.fetch_scalar::<i64>(&__count_sql, |q| q #( .bind(#bind_exprs) )* ).await?;
-            let __items = __t.fetch_all::<#row_type>(&__data_sql, |q| q #( .bind(#bind_exprs) )* .bind(__limit).bind(__offset) ).await?;
+            let __total = __t.fetch_scalar::<i64>(&__count_sql, |q| q #( .bind(#bind_exprs) )* ).await #__err?;
+            let __items = __t.fetch_all::<#row_type>(&__data_sql, |q| q #( .bind(#bind_exprs) )* .bind(__limit).bind(__offset) ).await #__err?;
             if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
                 webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
             }
             Ok(webr::db::Page::new(__items, __total, #page_ident.page, #page_ident.page_size))
         } else {
-            let __total = pool.fetch_scalar::<i64>(&__count_sql, |q| q #( .bind(#bind_exprs) )* ).await?;
-            let __items = pool.fetch_all::<#row_type>(&__data_sql, |q| q #( .bind(#bind_exprs) )* .bind(__limit).bind(__offset) ).await?;
+            let __total = pool.fetch_scalar::<i64>(&__count_sql, |q| q #( .bind(#bind_exprs) )* ).await #__err?;
+            let __items = pool.fetch_all::<#row_type>(&__data_sql, |q| q #( .bind(#bind_exprs) )* .bind(__limit).bind(__offset) ).await #__err?;
             if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
                 webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
             }
@@ -470,6 +479,7 @@ fn generate_dynamic_sql(
         FetchMode::Execute | FetchMode::Scalar | FetchMode::Page => unreachable!(),
     };
 
+    let __err = err_map();
     quote! {
         // Phase 1: build the complete SQL string
         let mut __sql = String::new();
@@ -489,14 +499,14 @@ fn generate_dynamic_sql(
                 q
             }).await;
             #result_log
-            __result
+            __result #__err
         } else {
             let __result = pool.#fetch_method::<#row_type>(&__sql, |mut q| {
                 #bind_segments
                 q
             }).await;
             #result_log
-            __result
+            __result #__err
         }
     }
 }
@@ -514,6 +524,7 @@ fn generate_dynamic_page_sql(
         .find(|p| p.is_pagination)
         .expect("#[sql] Page<T> return type requires a Pagination parameter");
     let page_ident = syn::Ident::new(&page_param.name, proc_macro2::Span::call_site());
+    let __err = err_map();
 
     quote! {
         // Phase 1: build the complete SQL string
@@ -538,11 +549,11 @@ fn generate_dynamic_page_sql(
             let __total = __t.fetch_scalar::<i64>(&__count_sql, |mut q| {
                 #bind_segments
                 q
-            }).await?;
+            }).await #__err?;
             let __items = __t.fetch_all::<#row_type>(&__data_sql, |mut q| {
                 #bind_segments
                 q.bind(__limit).bind(__offset)
-            }).await?;
+            }).await #__err?;
             if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
                 webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
             }
@@ -551,11 +562,11 @@ fn generate_dynamic_page_sql(
             let __total = pool.fetch_scalar::<i64>(&__count_sql, |mut q| {
                 #bind_segments
                 q
-            }).await?;
+            }).await #__err?;
             let __items = pool.fetch_all::<#row_type>(&__data_sql, |mut q| {
                 #bind_segments
                 q.bind(__limit).bind(__offset)
-            }).await?;
+            }).await #__err?;
             if webr::tracing::enabled!(target: "webr::sql", webr::tracing::Level::DEBUG) {
                 webr::tracing::debug!(target: "webr::sql", "<== total={}, items={}", __total, __items.len());
             }

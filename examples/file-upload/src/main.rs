@@ -58,7 +58,7 @@ impl FileController {
     /// 从文件路径下载（自动推断 MIME 类型）
     /// 文件不存在时返回 404
     #[get("/download/{filename}")]
-    async fn download_file(&self, path: webr::Path<(String,)>) -> Result<FileResponse, Error> {
+    async fn download_file(&self, path: webr::Path<(String,)>) -> std::result::Result<FileResponse, Error> {
         let filename = &path.0 .0;
         // 示例目录：当前工作目录下的 downloads 文件夹
         let file_path = format!("downloads/{}", filename);
@@ -83,7 +83,7 @@ impl FileController {
 // ─── 启动入口 ──────────────────────────────────────────
 
 #[webr::main]
-async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
+async fn main(app: &mut webr::AppBuilder) -> std::result::Result<(), Error> {
     // 增大请求体限制以支持文件上传（默认 2MB，这里设为 50MB）
     app.unified_response();
     Ok(())
