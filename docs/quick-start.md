@@ -15,9 +15,7 @@ cd my-app
 
 ```toml
 [dependencies]
-webr = { path = "/path/to/webr" }
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
+webr = { version = "0.1" }
 ```
 
 ## 3. 创建配置文件
@@ -27,10 +25,6 @@ tokio = { version = "1", features = ["full"] }
 ```toml
 [server]
 port = 8080
-
-[app]
-name = "my-app"
-greeting = "Hello from WebR!"
 ```
 
 ## 4. 编写代码
@@ -39,49 +33,21 @@ greeting = "Hello from WebR!"
 
 ```rust
 use webr::prelude::*;
-use webr::{Error, Inject};
 
-// 配置绑定：自动从 [app] 节加载
-#[config(prefix = "app")]
-pub struct AppConfig {
-    pub name: String,
-    pub greeting: String,
-}
-
-// 业务组件：自动注册到 DI 容器
-#[component]
-pub struct UserService;
-
-impl UserService {
-    pub async fn find_all(&self) -> Vec<String> {
-        vec!["Alice".into(), "Bob".into()]
-    }
-}
-
-// 控制器：通过 Inject<T> 声明依赖
 #[controller]
-pub struct HelloController {
-    app_config: Inject<AppConfig>,
-    user_service: Inject<UserService>,
-}
+pub struct HelloController;
 
 #[controller]
 impl HelloController {
     #[get("/")]
     async fn index(&self) -> String {
-        self.app_config.greeting.clone()
-    }
-
-    #[get("/users")]
-    async fn users(&self) -> Json<Vec<String>> {
-        Json(self.user_service.find_all().await)
+        "hello world".to_string()
     }
 }
 
-// 入口：#[webr::main] 宏包装 tokio runtime + 启动逻辑
+// 入口函数
 #[webr::main]
-async fn main(app: &mut AppBuilder) -> Result<(), Error> {
-    app.unified_response(); // 可选：启用统一响应包装
+async fn main(_app: &mut AppBuilder) -> Result<()> {
     Ok(())
 }
 ```
@@ -90,6 +56,16 @@ async fn main(app: &mut AppBuilder) -> Result<(), Error> {
 
 ```bash
 cargo run
+```
+
+如果你看到以下输出，则说明启动成功：
+
+```
+2026-07-06T06:29:41.284926Z  INFO webr_web::app: Starting WebR application...
+2026-07-06T06:29:41.285005Z  INFO webr_web::app: Configuration loaded: profile=dev, files=[config/application.toml]
+2026-07-06T06:29:41.285337Z  INFO webr_web::app: Route mappings:
+2026-07-06T06:29:41.285390Z  INFO webr_web::app:   GET / → HelloController
+2026-07-06T06:29:41.285633Z  INFO webr_web::app: WebR started on http://0.0.0.0:8080
 ```
 
 访问 `http://localhost:8080/` 查看结果。
