@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/public/logo.png" alt="WebR Logo" width="150">
+</p>
+
 # WebR
 
 [English](README.md)
