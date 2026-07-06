@@ -4,20 +4,20 @@ export default {
   base: '/webr/',
   themeConfig: {
     nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Guide', link: '/quick-start' }
+      { text: '首页', link: '/' },
+      { text: '指南', link: '/quick-start' }
     ],
     sidebar: [
-      { text: 'Quick Start', link: '/quick-start' },
-      { text: 'Configuration', link: '/configuration' },
-      { text: 'Controllers & Routing', link: '/controllers-routing' },
-      { text: 'Dependency Injection', link: '/dependency-injection' },
-      { text: 'Middleware', link: '/middleware' },
-      { text: 'Request Handling', link: '/request-handling' },
-      { text: 'Response & Error', link: '/response-error' },
-      { text: 'File Upload & SSE', link: '/file-upload-sse' },
-      { text: 'Database', link: '/database' },
-      { text: 'Cache', link: '/cache' }
+      { text: '快速开始', link: '/quick-start' },
+      { text: '配置', link: '/configuration' },
+      { text: '控制器与路由', link: '/controllers-routing' },
+      { text: '依赖注入', link: '/dependency-injection' },
+      { text: '中间件', link: '/middleware' },
+      { text: '请求处理', link: '/request-handling' },
+      { text: '响应与错误', link: '/response-error' },
+      { text: '文件上传与 SSE', link: '/file-upload-sse' },
+      { text: '数据库', link: '/database' },
+      { text: '缓存', link: '/cache' }
     ],
     socialLinks: [
       { icon: 'github', link: 'https://github.com/xgpxg/webr' }
