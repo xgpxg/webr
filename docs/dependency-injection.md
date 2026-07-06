@@ -88,7 +88,7 @@ app.provide(pool)?;  // 注册到 DI 容器，之后可通过 Inject<DbPool> 注
 Circular dependency detected among: UserService, OrderService
 ```
 
-## Inject<T> API
+## `Inject<T>` API
 
 `Inject<T>` 实现了 `Deref<Target=T>`，可直接调用 T 的方法：
 
