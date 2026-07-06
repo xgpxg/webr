@@ -43,7 +43,8 @@ pub fn expand_config(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     quote! {
-        #[derive(::serde::Deserialize)]
+        #[derive(::webr::serde::Deserialize)]
+        #[serde(crate = "::webr::serde")]
         #item_struct
 
         impl ::webr::Component for #struct_name {
@@ -57,7 +58,7 @@ pub fn expand_config(attr: TokenStream, item: TokenStream) -> TokenStream {
             ::webr::ConfigEntry {
                 register: |__webr_toml: &::webr::toml::Value, __webr_ctx: &mut ::webr::ApplicationContext<::webr::Error>| {
                     let __webr_section = #get_section;
-                    let __webr_instance: #struct_name = ::serde::Deserialize::deserialize(__webr_section)
+                    let __webr_instance: #struct_name = ::webr::serde::Deserialize::deserialize(__webr_section)
                         .map_err(|e| ::webr::FrameworkError::ConfigError(
                             ::std::format!("Failed to parse [{}]: {}", #prefix, e)
                         ))?;
