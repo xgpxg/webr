@@ -1,6 +1,6 @@
 # 中间件
 
-WebR 的中间件系统支持全局、路径范围和排除三种注册方式。
+WebR 的中间件系统基于 Axum 的中间件，对其做了简单封装，支持全局、路径范围和排除三种注册方式。
 
 ## 定义中间件
 
@@ -103,23 +103,23 @@ app.middleware(CorsMiddleware::new());
 
 // 自定义配置
 app.middleware(
-    CorsMiddleware::new()
-        .allow_origin("https://example.com")
-        .allow_methods(["GET", "POST"])
-        .allow_headers(["Content-Type", "Authorization"])
-        .allow_credentials(true)
-        .max_age(3600),
+CorsMiddleware::new()
+.allow_origin("https://example.com")
+.allow_methods(["GET", "POST"])
+.allow_headers(["Content-Type", "Authorization"])
+.allow_credentials(true)
+.max_age(3600),
 );
 ```
 
 默认值：
 
-| 配置项 | 默认值 |
-|--------|--------|
-| allow_origin | `*` |
-| allow_methods | `GET,POST,PUT,DELETE,PATCH,OPTIONS` |
-| allow_headers | `Content-Type,Authorization` |
-| allow_credentials | `false` |
+| 配置项               | 默认值                                 |
+|-------------------|-------------------------------------|
+| allow_origin      | `*`                                 |
+| allow_methods     | `GET,POST,PUT,DELETE,PATCH,OPTIONS` |
+| allow_headers     | `Content-Type,Authorization`        |
+| allow_credentials | `false`                             |
 
 注意：`allow_credentials(true)` 和 `allow_origin("*")` 互斥，同时设置会 panic。
 
@@ -142,11 +142,11 @@ app.unified_response();  // 推荐
 
 规则：
 
-| 响应类型 | 处理方式 |
-|----------|----------|
+| 响应类型       | 处理方式    |
+|------------|---------|
 | 2xx + JSON | 包装为标准格式 |
-| 非 2xx | 原样透传 |
-| 非 JSON | 原样透传 |
+| 非 2xx      | 原样透传    |
+| 非 JSON     | 原样透传    |
 
 ### AuthMiddleware
 
