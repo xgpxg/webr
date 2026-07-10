@@ -10,7 +10,7 @@ pub fn expand_main(item: TokenStream) -> TokenStream {
     let user_return_type = &input.sig.output;
     let user_fn_inputs = &input.sig.inputs;
 
-    let inner_fn_name = syn::Ident::new("__webr_user_main", input.sig.ident.span());
+    let inner_fn_name = syn::Ident::new("__webr_main", input.sig.ident.span());
 
     quote! {
         fn main() {
@@ -20,22 +20,22 @@ pub fn expand_main(item: TokenStream) -> TokenStream {
                 .expect("Failed to create tokio runtime");
 
             rt.block_on(async {
-                // AppBuilder::new() 内部加载配置 + 初始化 tracing
+                // AppBuilder::new() 内部会加载配置并初始化 tracing
                 let mut app = ::webr::AppBuilder::new();
 
-                // 用户配置代码
-                if let Err(e) = #inner_fn_name(&mut app).await {
-                    ::webr::tracing::error!("Application error: {}", e);
-                    ::std::process::exit(1);
-                }
-
-                // 自动初始化框架组件（cache、db 等）
+                // 自动初始化框架组件（缓存、数据库等）
                 if let Err(e) = ::webr::__auto_init(&mut app).await {
                     ::webr::tracing::error!("Auto-init error: {}", e);
                     ::std::process::exit(1);
                 }
 
-                // 启动 HTTP 服务（内部自动执行 build）
+                // 用户应用代码
+                if let Err(e) = #inner_fn_name(&mut app).await {
+                    ::webr::tracing::error!("Application error: {}", e);
+                    ::std::process::exit(1);
+                }
+
+                // 启动 HTTP 服务器（内部调用 build）
                 if let Err(e) = app.run().await {
                     ::webr::tracing::error!("Server error: {}", e);
                     ::std::process::exit(1);
