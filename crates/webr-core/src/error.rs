@@ -18,6 +18,8 @@ pub enum FrameworkError {
     DowncastFailed(&'static str),
     /// Circular dependency detected
     CircularDependency(String),
+    /// Component dependency not registered
+    DependencyNotFound(String),
     /// Configuration loading or parsing error
     ConfigError(String),
 }
@@ -29,6 +31,7 @@ impl fmt::Display for FrameworkError {
             Self::ComponentNotFound(name) => write!(f, "Component '{name}' not found"),
             Self::DowncastFailed(name) => write!(f, "Failed to downcast '{name}'"),
             Self::CircularDependency(msg) => write!(f, "Circular dependency: {msg}"),
+            Self::DependencyNotFound(msg) => write!(f, "Dependency not found: {msg}"),
             Self::ConfigError(msg) => write!(f, "Config: {msg}"),
         }
     }

@@ -64,7 +64,7 @@ fn expand_controller_struct(item_struct: ItemStruct) -> TokenStream {
     }
 
     let dep_list = inject_types.iter().map(|ty| {
-        quote! { ::std::any::TypeId::of::<#ty>() }
+        quote! { (::std::any::TypeId::of::<#ty>(), <#ty as ::webr::Component>::component_name()) }
     });
 
     quote! {

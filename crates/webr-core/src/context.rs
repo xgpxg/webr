@@ -25,8 +25,8 @@ pub struct ApplicationContext<E: std::error::Error + Send + Sync + 'static> {
     instances: HashMap<TypeId, Arc<dyn Any + Send + Sync>>,
     /// Factory functions consumed during build
     factories: HashMap<TypeId, FactoryFn<E>>,
-    /// Dependency graph: type_id → list of required type_ids
-    dep_graph: HashMap<TypeId, Vec<TypeId>>,
+    /// Dependency graph: type_id → list of (dependency_type_id, dependency_name)
+    dep_graph: HashMap<TypeId, Vec<(TypeId, &'static str)>>,
     /// Human-readable component names for error messages
     names: HashMap<TypeId, &'static str>,
     /// Registration order for topological sort initialization
@@ -101,10 +101,9 @@ impl<E: std::error::Error + Send + Sync + 'static> ApplicationContext<E> {
                 continue;
             }
 
-            let factory = self
-                .factories
-                .remove(&type_id)
-                .ok_or_else(|| FrameworkError::ConfigError("Missing factory during build".into()))?;
+            let factory = self.factories.remove(&type_id).ok_or_else(|| {
+                FrameworkError::ConfigError("Missing factory during build".into())
+            })?;
 
             let instance = factory(self)?;
             self.instances.insert(type_id, Arc::from(instance));
@@ -162,10 +161,15 @@ impl<E: std::error::Error + Send + Sync + 'static> ApplicationContext<E> {
         }
 
         for (&type_id, deps) in &self.dep_graph {
-            for &dep in deps {
+            for &(dep, dep_name) in deps {
                 if in_degree.contains_key(&dep) {
                     *in_degree.entry(type_id).or_insert(0) += 1;
                     reverse_adj.entry(dep).or_default().push(type_id);
+                } else {
+                    let name = self.names.get(&type_id).copied().unwrap_or("unknown");
+                    return Err(FrameworkError::DependencyNotFound(format!(
+                        "'{name}' depends on '{dep_name}', which is not registered"
+                    )));
                 }
             }
         }
@@ -206,12 +210,79 @@ impl<E: std::error::Error + Send + Sync + 'static> ApplicationContext<E> {
 
         Ok(sorted)
     }
-
-
 }
 
 impl<E: std::error::Error + Send + Sync + 'static> Default for ApplicationContext<E> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::{Any, TypeId};
+
+    use crate::component::{Component, ComponentRegistration};
+    use crate::context::ApplicationContext;
+    use crate::error::FrameworkError;
+
+    #[derive(Debug)]
+    struct TestError(String);
+
+    impl std::fmt::Display for TestError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}", self.0)
+        }
+    }
+
+    impl std::error::Error for TestError {}
+
+    impl From<FrameworkError> for TestError {
+        fn from(e: FrameworkError) -> Self {
+            TestError(e.to_string())
+        }
+    }
+
+    struct ServiceA;
+    struct ServiceB;
+
+    impl Component for ServiceA {
+        fn component_name() -> &'static str {
+            "ServiceA"
+        }
+    }
+
+    impl Component for ServiceB {
+        fn component_name() -> &'static str {
+            "ServiceB"
+        }
+    }
+
+    fn dummy_factory(
+        _ctx: &ApplicationContext<TestError>,
+    ) -> Result<Box<dyn Any + Send + Sync>, TestError> {
+        Ok(Box::new(ServiceA))
+    }
+
+    #[test]
+    fn missing_dependency_returns_error() {
+        let mut ctx: ApplicationContext<TestError> = ApplicationContext::new();
+
+        // Register ServiceA with a dependency on ServiceB
+        ctx.register(ComponentRegistration {
+            type_id: TypeId::of::<ServiceA>(),
+            name: "ServiceA",
+            dependencies: vec![(TypeId::of::<ServiceB>(), "ServiceB")],
+            factory: Box::new(dummy_factory),
+        });
+
+        // ServiceB is NOT registered — topological sort catches it before factory runs
+        let result = ctx.build();
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("ServiceA"), "msg: {msg}");
+        assert!(msg.contains("not registered"), "msg: {msg}");
     }
 }

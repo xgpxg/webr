@@ -46,7 +46,7 @@ pub fn expand_component(item: TokenStream) -> TokenStream {
     }
 
     let dep_list = inject_types.iter().map(|ty| {
-        quote! { ::std::any::TypeId::of::<#ty>() }
+        quote! { (::std::any::TypeId::of::<#ty>(), <#ty as ::webr::Component>::component_name()) }
     });
 
     quote! {

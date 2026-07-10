@@ -91,7 +91,11 @@ impl AppBuilder {
         };
 
         // Apply server config
-        let server = builder.config.server_config();
+        let server = builder
+            .config
+            .server_config()
+            .unwrap_or_else(|e| panic!("{e}"));
+
         builder.host = server.host;
         builder.port = server.port;
         builder.max_body_size = server.max_body_size;

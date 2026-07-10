@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use serde::Deserialize;
 
 use crate::error::FrameworkError;
@@ -96,17 +98,17 @@ impl ConfigLoader {
         let config_dir = resolve_config_dir();
 
         // 1. config/application.toml
-        let base_path = format!("{}/application.toml", config_dir);
+        let base_path = config_dir.join("application.toml");
         if let Some(base) = read_toml_file(&base_path)? {
             merge_toml(&mut values, base);
-            files_loaded.push(base_path);
+            files_loaded.push(base_path.to_string_lossy().to_string());
         }
 
         // 2. config/application-{profile}.toml
-        let profile_path = format!("{}/application-{}.toml", config_dir, profile);
+        let profile_path = config_dir.join(format!("application-{}.toml", profile));
         if let Some(profile_val) = read_toml_file(&profile_path)? {
             merge_toml(&mut values, profile_val);
-            files_loaded.push(profile_path);
+            files_loaded.push(profile_path.to_string_lossy().to_string());
         }
 
         // 3. 环境变量覆盖（WEBR_ 前缀）
@@ -154,25 +156,28 @@ impl ConfigLoader {
     }
 
     /// 解析 `[server]` 配置节为 `ServerConfig`
-    pub fn server_config(&self) -> ServerConfig {
-        self.get::<ServerConfig>("server").unwrap_or_default()
+    pub fn server_config(&self) -> Result<ServerConfig, FrameworkError> {
+        self.get::<ServerConfig>("server")
     }
 }
 
 /// 读取 TOML 文件，文件不存在返回 `None`
-fn read_toml_file(path: &str) -> Result<Option<toml::Value>, FrameworkError> {
+fn read_toml_file(path: &Path) -> Result<Option<toml::Value>, FrameworkError> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
         }
         Err(e) => {
-            return Err(FrameworkError::ConfigError(format!("Cannot read {path}: {e}")));
+            return Err(FrameworkError::ConfigError(format!(
+                "Cannot read {}: {e}",
+                path.display()
+            )));
         }
     };
-    let val = content
-        .parse::<toml::Value>()
-        .map_err(|e| FrameworkError::ConfigError(format!("Invalid TOML in {path}: {e}")))?;
+    let val = content.parse::<toml::Value>().map_err(|e| {
+        FrameworkError::ConfigError(format!("Invalid TOML in {}: {e}", path.display()))
+    })?;
     Ok(Some(val))
 }
 
@@ -180,10 +185,10 @@ fn read_toml_file(path: &str) -> Result<Option<toml::Value>, FrameworkError> {
 /// 1. `WEBR_CONFIG_DIR` 环境变量
 /// 2. 从可执行文件位置向上查找 `config/` 目录
 /// 3. 当前工作目录下的 `config/`
-fn resolve_config_dir() -> String {
+fn resolve_config_dir() -> PathBuf {
     // 1. 环境变量优先
     if let Ok(dir) = std::env::var("WEBR_CONFIG_DIR") {
-        return dir;
+        return PathBuf::from(dir);
     }
 
     // 2. 从可执行文件位置向上查找
@@ -192,14 +197,14 @@ fn resolve_config_dir() -> String {
         while let Some(d) = dir {
             let config_path = d.join("config");
             if config_path.is_dir() {
-                return config_path.to_string_lossy().to_string();
+                return config_path;
             }
             dir = d.parent();
         }
     }
 
     // 3. 回退到当前工作目录
-    "config".to_string()
+    PathBuf::from("config")
 }
 
 /// 深度合并 toml 值，`source` 中的同名键覆盖 `target`
