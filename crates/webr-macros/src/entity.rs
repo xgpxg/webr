@@ -44,12 +44,15 @@ pub fn expand_entity(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     let iden_enum = generate_iden_enum(&info);
     // 生成 CRUD 方法
     let crud_impl = generate_crud_methods(&info);
+    // 生成 Builder 结构体
+    let builder_impl = generate_builder(&info);
 
     Ok(quote! {
         #item_struct
         #iden_enum
         #from_row_impl
         #crud_impl
+        #builder_impl
     })
 }
 
@@ -228,8 +231,7 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
         .collect();
     let select_cols = all_col_names.join(", ");
     let non_pk_col_names: Vec<&str> = info.columns.iter().map(|(_, c, _)| c.as_str()).collect();
-    let non_pk_count = non_pk_col_names.len();
-    let insert_cols = non_pk_col_names.join(", ");
+    let non_pk_col_count = non_pk_col_names.len();
     let non_pk_field_names: Vec<&syn::Ident> = info.columns.iter().map(|(f, _, _)| f).collect();
 
     let err_map = db_err_map();
@@ -247,7 +249,7 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     #select_cols, #table, #pk_col,
                     __pool.placeholder(1),
                 );
-                webr::tracing::debug!(target: "webr::sql", "==> {} | params: [{}]", sql, id);
+                webr::tracing::debug!(target: "webr::sql", "==> {} | params: [{:?}]", sql, id);
                 let result = if let Some(__t) = webr::db::try_get_txn() {
                     __t.fetch_optional(&sql, |q| q.bind(id)).await
                 } else {
@@ -269,31 +271,51 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                 Ok(result #err_map)
             }
 
-            /// 插入实体。
+            /// 插入实体，只插入 `Some` 字段，`None` 字段由 DB 默认值填充。
             pub async fn save(
                 &self,
             ) -> webr::Result<()> {
                 let __pool = webr::db::get_pool();
-                let mut placeholders = Vec::new();
-                for i in 1..=#non_pk_count {
-                    placeholders.push(__pool.placeholder(i));
+                let __all_cols: &[&str] = &[#(#non_pk_col_names),*];
+                let mut __cols: Vec<&str> = Vec::new();
+                #(if self.#non_pk_field_names.is_some() {
+                    __cols.push(__all_cols[__cols.len()]);
+                })*
+                if __cols.is_empty() {
+                    return Ok(());
                 }
+                let __col_str = __cols.join(", ");
+                let __phs: Vec<String> = (1..=__cols.len())
+                    .map(|i| __pool.placeholder(i))
+                    .collect();
                 let sql = format!(
                     "INSERT INTO {} ({}) VALUES ({})",
-                    #table, #insert_cols,
-                    placeholders.join(", "),
+                    #table, __col_str, __phs.join(", "),
                 );
                 webr::tracing::debug!(target: "webr::sql", "==> {}", sql);
                 if let Some(__t) = webr::db::try_get_txn() {
-                    __t.execute(&sql, |q| q #( .bind(&self.#non_pk_field_names) )* ).await
+                    __t.execute(&sql, |mut __q| {
+                        #(match &self.#non_pk_field_names {
+                            Some(ref __v) => { __q = __q.bind(__v); }
+                            None => {}
+                        })*
+                        __q
+                    }).await #err_map
                 } else {
-                    __pool.execute(&sql, |q| q #( .bind(&self.#non_pk_field_names) )* ).await
-                } #err_map;
+                    __pool.execute(&sql, |mut __q| {
+                        #(match &self.#non_pk_field_names {
+                            Some(ref __v) => { __q = __q.bind(__v); }
+                            None => {}
+                        })*
+                        __q
+                    }).await #err_map
+                };
                 Ok(())
             }
 
-            /// 批量插入实体，返回受影响行数。
-            /// 空切片直接返回 0。
+            /// 批量插入实体，生成单条 `INSERT INTO ... VALUES (...), (...)` 语句。
+            ///
+            /// 所有非主键列统一参与插入，未设置的 `Option` 字段绑定为 `NULL`。
             pub async fn save_batch(
                 items: &[Self],
             ) -> webr::Result<u64> {
@@ -301,67 +323,80 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     return Ok(0);
                 }
                 let __pool = webr::db::get_pool();
-                let mut row_parts = Vec::with_capacity(items.len());
-                let mut __idx = 0usize;
-                for _ in items {
-                    let mut cols = Vec::with_capacity(#non_pk_count);
-                    for _ in 0..#non_pk_count {
-                        __idx += 1;
-                        cols.push(__pool.placeholder(__idx));
-                    }
-                    row_parts.push(format!("({})", cols.join(", ")));
-                }
-                let sql = format!(
-                    "INSERT INTO {} ({}) VALUES {}",
-                    #table, #insert_cols, row_parts.join(", "),
+                let __col_str = [#(#non_pk_col_names),*].join(", ");
+                let __row_ph = format!(
+                    "({})",
+                    (1..=#non_pk_col_count)
+                        .map(|i| __pool.placeholder(i))
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 );
-                webr::tracing::debug!(target: "webr::sql", "==> {} (batch {})", sql, items.len());
-                let rows: u64 = if let Some(__t) = webr::db::try_get_txn() {
-                    __t.execute(&sql, |q| {
-                        let mut q = q;
-                        for item in items {
-                            q = q #( .bind(&item.#non_pk_field_names) )*;
+                let __sql = format!(
+                    "INSERT INTO {} ({}) VALUES {}",
+                    #table,
+                    __col_str,
+                    vec![__row_ph; items.len()].join(", "),
+                );
+                webr::tracing::debug!(target: "webr::sql", "==> batch insert {} rows", items.len());
+                if let Some(__t) = webr::db::try_get_txn() {
+                    __t.execute(&__sql, |mut __q| {
+                        for __item in items {
+                            #(__q = __q.bind(&__item.#non_pk_field_names);)*
                         }
-                        q
+                        __q
                     }).await #err_map
                 } else {
-                    __pool.execute(&sql, |q| {
-                        let mut q = q;
-                        for item in items {
-                            q = q #( .bind(&item.#non_pk_field_names) )*;
+                    __pool.execute(&__sql, |mut __q| {
+                        for __item in items {
+                            #(__q = __q.bind(&__item.#non_pk_field_names);)*
                         }
-                        q
+                        __q
                     }).await #err_map
                 };
-                Ok(rows)
+                Ok(items.len() as u64)
             }
 
-            /// 按主键更新实体。如果更新了行则返回 true。
+            /// 按主键更新实体，只更新 `Some` 字段，`None` 字段不更新。
             pub async fn update(
                 &self,
             ) -> webr::Result<bool> {
                 let __pool = webr::db::get_pool();
-                let non_pk_cols: &[&str] = &[#(#non_pk_col_names),*];
-                let mut set_parts = Vec::with_capacity(non_pk_cols.len());
-                for (i, col) in non_pk_cols.iter().enumerate() {
-                    set_parts.push(format!("{col} = {}", __pool.placeholder(i + 1)));
+                let __all_cols: &[&str] = &[#(#non_pk_col_names),*];
+                let mut __set_parts: Vec<String> = Vec::new();
+                let mut __field_count = 0usize;
+                #(if self.#non_pk_field_names.is_some() {
+                    __set_parts.push(format!(
+                        "{} = {}", __all_cols[__field_count], __pool.placeholder(__set_parts.len() + 1)
+                    ));
                 }
-                let pk_ph = __pool.placeholder(non_pk_cols.len() + 1);
+                let __field_count = __field_count + 1;)*
+                if __set_parts.is_empty() {
+                    return Ok(false);
+                }
+                let pk_ph = __pool.placeholder(__set_parts.len() + 1);
                 let sql = format!(
                     "UPDATE {} SET {} WHERE {} = {pk_ph}",
-                    #table, set_parts.join(", "), #pk_col,
+                    #table, __set_parts.join(", "), #pk_col,
                 );
                 webr::tracing::debug!(target: "webr::sql", "==> {}", sql);
                 let rows: u64 = if let Some(__t) = webr::db::try_get_txn() {
-                    __t.execute(&sql, |q| q
-                        #( .bind(&self.#non_pk_field_names) )*
-                        .bind(&self.#pk)
-                    ).await #err_map
+                    __t.execute(&sql, |mut __q| {
+                        #(match &self.#non_pk_field_names {
+                            Some(ref __v) => { __q = __q.bind(__v); }
+                            None => {}
+                        })*
+                        __q = __q.bind(&self.#pk);
+                        __q
+                    }).await #err_map
                 } else {
-                    __pool.execute(&sql, |q| q
-                        #( .bind(&self.#non_pk_field_names) )*
-                        .bind(&self.#pk)
-                    ).await #err_map
+                    __pool.execute(&sql, |mut __q| {
+                        #(match &self.#non_pk_field_names {
+                            Some(ref __v) => { __q = __q.bind(__v); }
+                            None => {}
+                        })*
+                        __q = __q.bind(&self.#pk);
+                        __q
+                    }).await #err_map
                 };
                 Ok(rows > 0)
             }
@@ -376,7 +411,7 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                     #table, #pk_col,
                     __pool.placeholder(1),
                 );
-                webr::tracing::debug!(target: "webr::sql", "==> {} | params: [{}]", sql, &self.#pk);
+                webr::tracing::debug!(target: "webr::sql", "==> {} | params: [{:?}]", sql, &self.#pk);
                 let rows: u64 = if let Some(__t) = webr::db::try_get_txn() {
                     __t.execute(&sql, |q| q.bind(&self.#pk)).await #err_map
                 } else {
@@ -483,4 +518,107 @@ fn to_pascal_case(s: &str) -> String {
             }
         })
         .collect()
+}
+
+/// 从 `Option<T>` 类型中提取内部类型 `T`。
+/// 如果不是 `Option`，返回 `None`。
+fn extract_option_inner(ty: &Type) -> Option<&Type> {
+    if let Type::Path(type_path) = ty {
+        let seg = type_path.path.segments.last()?;
+        if seg.ident == "Option" {
+            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                    return Some(inner);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 生成 Builder 结构体及其实现。
+///
+/// 为所有字段（含 PK）生成 setter，`build()` 返回实体实例。
+/// 对于 `Option<T>` 字段，setter 接受 `T` 并自动包装为 `Some`。
+fn generate_builder(info: &EntityInfo) -> TokenStream {
+    let struct_name = &info.struct_name;
+    let builder_name = syn::Ident::new(&format!("{}Builder", struct_name), struct_name.span());
+
+    // 所有字段（含 PK）
+    let field_names: Vec<&syn::Ident> = info.all_columns.iter().map(|(f, _, _)| f).collect();
+    let field_types: Vec<&Type> = info.all_columns.iter().map(|(_, _, t)| t).collect();
+
+    // Builder 字段：全部为 Option<T>（外层 Option 表示是否设置）
+    let builder_fields: Vec<TokenStream> = field_names
+        .iter()
+        .zip(field_types.iter())
+        .map(|(name, ty)| {
+            quote! { #name: ::std::option::Option<#ty> }
+        })
+        .collect();
+
+    // 生成 setter：对于 Option<T> 字段，setter 接受 T；其他字段接受原类型
+    let setters: Vec<TokenStream> = field_names
+        .iter()
+        .zip(field_types.iter())
+        .map(|(name, ty)| {
+            if let Some(inner) = extract_option_inner(ty) {
+                // Option<T> 字段：setter 接受 T，包装为 Some(Some(v))
+                quote! {
+                    pub fn #name(mut self, v: #inner) -> Self {
+                        self.#name = ::std::option::Option::Some(::std::option::Option::Some(v));
+                        self
+                    }
+                }
+            } else {
+                // 非 Option 字段：setter 接受原类型，包装为 Some(v)
+                quote! {
+                    pub fn #name(mut self, v: #ty) -> Self {
+                        self.#name = ::std::option::Option::Some(v);
+                        self
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // build() 方法：未设置的字段默认为 None
+    let build_fields: Vec<TokenStream> = field_names
+        .iter()
+        .map(|name| {
+            quote! { #name: self.#name.unwrap_or(::std::option::Option::None) }
+        })
+        .collect();
+
+    quote! {
+        /// 由 `#[entity]` 宏自动生成的 Builder 结构体。
+        pub struct #builder_name {
+            #(#builder_fields,)*
+        }
+
+        impl #struct_name {
+            /// 创建 Builder 实例。
+            pub fn builder() -> #builder_name {
+                #builder_name::new()
+            }
+        }
+
+        impl #builder_name {
+            /// 创建空的 Builder。
+            pub fn new() -> Self {
+                Self {
+                    #(#field_names: ::std::option::Option::None,)*
+                }
+            }
+
+            #(#setters)*
+
+            /// 构建实体实例。
+            pub fn build(self) -> #struct_name {
+                #struct_name {
+                    #(#build_fields,)*
+                }
+            }
+        }
+    }
 }

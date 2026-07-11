@@ -8,9 +8,9 @@ use webr::{Error, Inject};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Todo {
     #[column(pk)]
-    pub id: i64,
-    pub title: String,
-    pub done: bool,
+    pub id: Option<i64>,
+    pub title: Option<String>,
+    pub done: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,22 +189,22 @@ impl TodoService {
     }
 
     pub async fn get(&self, id: i64) -> webr::Result<Option<Todo>> {
-        let one = Todo::find_by_id(&id).await?;
+        let one = Todo::find_by_id(&Some(id)).await?;
         Ok(one)
     }
 
     pub async fn create(&self, title: &str) -> webr::Result<Todo> {
         let todo = Todo {
-            id: 0,
-            title: title.to_string(),
-            done: false,
+            id: None,
+            title: Some(title.to_string()),
+            done: Some(false),
         };
         todo.save().await?;
         Ok(todo)
     }
 
     pub async fn delete(&self, id: i64) -> webr::Result<bool> {
-        if let Some(todo) = Todo::find_by_id(&id).await? {
+        if let Some(todo) = Todo::find_by_id(&Some(id)).await? {
             Ok(todo.delete().await?)
         } else {
             Ok(false)
@@ -296,9 +296,9 @@ impl TodoService {
         let mut todos = Vec::new();
         for title in titles {
             let todo = Todo {
-                id: 0,
-                title: title.to_string(),
-                done: false,
+                id: None,
+                title: Some(title.to_string()),
+                done: Some(false),
             };
             todo.save().await?;
             todos.push(todo);
@@ -310,9 +310,9 @@ impl TodoService {
     #[tx]
     pub async fn create_and_fail(&self, title: &str) -> webr::Result<Todo> {
         let todo = Todo {
-            id: 0,
-            title: title.to_string(),
-            done: false,
+            id: None,
+            title: Some(title.to_string()),
+            done: Some(false),
         };
         todo.save().await?;
         // 故意返回错误 → 触发 rollback
@@ -488,7 +488,7 @@ impl TodoController {
         Ok(webr::Json(serde_json::json!({
             "committed": true,
             "count": todos.len(),
-            "titles": todos.iter().map(|t| &t.title).collect::<Vec<_>>(),
+            "titles": todos.iter().map(|t| t.title.as_deref().unwrap_or("")).collect::<Vec<_>>(),
         })))
     }
 
