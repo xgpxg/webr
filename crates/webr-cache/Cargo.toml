@@ -2,6 +2,7 @@
 name = "webr-cache"
 version = "0.1.0-alpha.1"
 edition = "2021"
+license = "Apache-2.0"
 description = "Cache module for the Webr framework, providing in-memory, embedded, and Redis cache backends with unified KV and extended data-structure APIs"
 repository = "https://github.com/xgpxg/webr"
 authors = ["wxg"]

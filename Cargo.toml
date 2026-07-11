@@ -20,6 +20,7 @@ members = [
 name = "webr"
 version = "0.1.0-alpha.1"
 edition = "2021"
+license = "Apache-2.0"
 description = "A Spring Boot-inspired web framework for Rust"
 repository = "https://github.com/xgpxg/webr"
 authors = ["wxg"]

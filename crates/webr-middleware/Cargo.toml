@@ -2,6 +2,7 @@
 name = "webr-middleware"
 version = "0.1.0-alpha.1"
 edition = "2021"
+license = "Apache-2.0"
 description = "Middleware implementations for the Webr framework"
 repository = "https://github.com/xgpxg/webr"
 authors = ["wxg"]
