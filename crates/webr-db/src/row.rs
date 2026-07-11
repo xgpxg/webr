@@ -112,3 +112,19 @@ __scalar! { @ms_sq }
 __scalar! { @pg }
 __scalar! { @ms }
 __scalar! { @sq }
+
+// ─── Fallback (no database feature enabled) ───────────────────────
+// These empty definitions ensure the types compile even without any
+// database feature, which is necessary for crates.io publishing.
+
+#[cfg(not(any(feature = "mysql", feature = "postgres", feature = "sqlite")))]
+pub trait Row: Send + Unpin + 'static {}
+
+#[cfg(not(any(feature = "mysql", feature = "postgres", feature = "sqlite")))]
+impl<T> Row for T where T: Send + Unpin + 'static {}
+
+#[cfg(not(any(feature = "mysql", feature = "postgres", feature = "sqlite")))]
+pub trait Scalar: Send + Unpin + 'static {}
+
+#[cfg(not(any(feature = "mysql", feature = "postgres", feature = "sqlite")))]
+impl<T> Scalar for T where T: Send + Unpin + 'static {}

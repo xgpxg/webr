@@ -26,6 +26,9 @@ pub enum QueryBinder<'q, R> {
     MySql(sqlx::query::QueryAs<'q, sqlx::MySql, R, sqlx::mysql::MySqlArguments>),
     #[cfg(feature = "sqlite")]
     Sqlite(sqlx::query::QueryAs<'q, sqlx::Sqlite, R, sqlx::sqlite::SqliteArguments<'q>>),
+    #[cfg(not(any(feature = "postgres", feature = "mysql", feature = "sqlite")))]
+    #[allow(unused)]
+    _Phantom(std::marker::PhantomData<&'q R>),
 }
 
 /// A database-agnostic scalar query builder (for `COUNT(*)` etc.).
@@ -36,6 +39,9 @@ pub enum ScalarBinder<'q, T> {
     MySql(sqlx::query::QueryScalar<'q, sqlx::MySql, T, sqlx::mysql::MySqlArguments>),
     #[cfg(feature = "sqlite")]
     Sqlite(sqlx::query::QueryScalar<'q, sqlx::Sqlite, T, sqlx::sqlite::SqliteArguments<'q>>),
+    #[cfg(not(any(feature = "postgres", feature = "mysql", feature = "sqlite")))]
+    #[allow(unused)]
+    _Phantom(std::marker::PhantomData<&'q T>),
 }
 
 /// A database-agnostic query builder for non-SELECT statements.
@@ -46,6 +52,9 @@ pub enum ExecutionBinder<'q> {
     MySql(sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments>),
     #[cfg(feature = "sqlite")]
     Sqlite(sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>),
+    #[cfg(not(any(feature = "postgres", feature = "mysql", feature = "sqlite")))]
+    #[allow(unused)]
+    _Phantom(std::marker::PhantomData<&'q ()>),
 }
 
 // ═══════════════════════════════════════════════════════════════════
