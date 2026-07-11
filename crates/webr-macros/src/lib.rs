@@ -1,12 +1,13 @@
 use proc_macro::TokenStream;
 
-mod controller;
+mod component;
+mod component_gen;
 mod config;
+mod controller;
 mod entity;
 mod error_derive;
 mod main_macro;
 mod route;
-mod component;
 mod sql_macro;
 mod sql_parser;
 mod tx;
