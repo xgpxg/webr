@@ -27,9 +27,11 @@ jobs:
         with:
           node-version: '18'
       - name: Install VitePress
-        run: npm install -D vitepress
+        run: npm install
+        working-directory: ./docs
       - name: Build site
-        run: npx vitepress build docs
+        run: npx vitepress build .
+        working-directory: ./docs
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

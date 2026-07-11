@@ -1,1 +1,6 @@
 /target
+.idea
+/node_modules
+/docs/node_modules
+design
+publish.sh
