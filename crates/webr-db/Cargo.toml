@@ -1,6 +1,6 @@
 [package]
 name = "webr-db"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Database module for the Webr framework, providing connection pool management, transaction support, and ORM integration with MySQL, PostgreSQL, and SQLite support"
 repository = "https://github.com/xgpxg/webr"
@@ -8,7 +8,7 @@ authors = ["wxg"]
 
 [dependencies]
 sqlx = { version = "0.8", features = ["runtime-tokio", "chrono", "uuid"] }
-webr-core = { version = "0.1.0", path = "../webr-core" }
+webr-core = { version = "0.1.0-alpha.1", path = "../webr-core" }
 sea-query = "0.32"
 sea-query-binder = { version = "0.7", default-features = false }
 serde = { version = "1", features = ["derive"] }

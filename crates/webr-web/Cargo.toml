@@ -1,13 +1,13 @@
 [package]
 name = "webr-web"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Web layer for the Webr framework, providing application lifecycle, routing, extractors, middleware, and response types on top of axum"
 repository = "https://github.com/xgpxg/webr"
 authors = ["wxg"]
 
 [dependencies]
-webr-core = { version = "0.1.0", path = "../webr-core" }
+webr-core = { version = "0.1.0-alpha.1", path = "../webr-core" }
 axum = { version = "0.8", features = ["multipart"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

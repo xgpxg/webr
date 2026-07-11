@@ -1,6 +1,6 @@
 [package]
 name = "webr-cache"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2021"
 description = "Cache module for the Webr framework, providing in-memory, embedded, and Redis cache backends with unified KV and extended data-structure APIs"
 repository = "https://github.com/xgpxg/webr"
@@ -8,7 +8,7 @@ authors = ["wxg"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-webr-core = { version = "0.1.0", path = "../webr-core" }
+webr-core = { version = "0.1.0-alpha.1", path = "../webr-core" }
 serde_json = "1"
 async-trait = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread"] }
