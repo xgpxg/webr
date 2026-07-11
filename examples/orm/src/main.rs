@@ -199,7 +199,8 @@ impl TodoService {
             title: title.to_string(),
             done: false,
         };
-        Ok(todo.save().await?)
+        todo.save().await?;
+        Ok(todo)
     }
 
     pub async fn delete(&self, id: i64) -> webr::Result<bool> {
@@ -299,8 +300,8 @@ impl TodoService {
                 title: title.to_string(),
                 done: false,
             };
-            let saved = todo.save().await?;
-            todos.push(saved);
+            todo.save().await?;
+            todos.push(todo);
         }
         Ok(todos)
     }
@@ -313,7 +314,7 @@ impl TodoService {
             title: title.to_string(),
             done: false,
         };
-        let _saved = todo.save().await?;
+        todo.save().await?;
         // 故意返回错误 → 触发 rollback
         Err(Error::Internal("intentional rollback".into()))
     }

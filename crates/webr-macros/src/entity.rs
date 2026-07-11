@@ -269,39 +269,71 @@ fn generate_crud_methods(info: &EntityInfo) -> TokenStream {
                 Ok(result #err_map)
             }
 
-            /// 插入实体并返回创建的记录。
+            /// 插入实体。
             pub async fn save(
                 &self,
-            ) -> webr::Result<Self> {
+            ) -> webr::Result<()> {
                 let __pool = webr::db::get_pool();
                 let mut placeholders = Vec::new();
                 for i in 1..=#non_pk_count {
                     placeholders.push(__pool.placeholder(i));
                 }
-                let insert_sql = format!(
-                    "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
+                let sql = format!(
+                    "INSERT INTO {} ({}) VALUES ({})",
                     #table, #insert_cols,
                     placeholders.join(", "),
-                    #select_cols,
                 );
-                let fetch_sql = format!(
-                    "SELECT {} FROM {} WHERE {} = {}",
-                    #select_cols, #table, #pk_col,
-                    __pool.placeholder(1),
-                );
-                webr::tracing::debug!(target: "webr::sql", "==> {} (insert)", insert_sql);
-                let result = if let Some(__t) = webr::db::try_get_txn() {
-                    __t.insert_fetch(
-                        &insert_sql, &fetch_sql, #pk_col,
-                        |q| q #( .bind(&self.#non_pk_field_names) )*,
-                    ).await
+                webr::tracing::debug!(target: "webr::sql", "==> {}", sql);
+                if let Some(__t) = webr::db::try_get_txn() {
+                    __t.execute(&sql, |q| q #( .bind(&self.#non_pk_field_names) )* ).await
                 } else {
-                    __pool.insert_fetch(
-                        &insert_sql, &fetch_sql, #pk_col,
-                        |q| q #( .bind(&self.#non_pk_field_names) )*,
-                    ).await
+                    __pool.execute(&sql, |q| q #( .bind(&self.#non_pk_field_names) )* ).await
+                } #err_map;
+                Ok(())
+            }
+
+            /// 批量插入实体，返回受影响行数。
+            /// 空切片直接返回 0。
+            pub async fn save_batch(
+                items: &[Self],
+            ) -> webr::Result<u64> {
+                if items.is_empty() {
+                    return Ok(0);
+                }
+                let __pool = webr::db::get_pool();
+                let mut row_parts = Vec::with_capacity(items.len());
+                let mut __idx = 0usize;
+                for _ in items {
+                    let mut cols = Vec::with_capacity(#non_pk_count);
+                    for _ in 0..#non_pk_count {
+                        __idx += 1;
+                        cols.push(__pool.placeholder(__idx));
+                    }
+                    row_parts.push(format!("({})", cols.join(", ")));
+                }
+                let sql = format!(
+                    "INSERT INTO {} ({}) VALUES {}",
+                    #table, #insert_cols, row_parts.join(", "),
+                );
+                webr::tracing::debug!(target: "webr::sql", "==> {} (batch {})", sql, items.len());
+                let rows: u64 = if let Some(__t) = webr::db::try_get_txn() {
+                    __t.execute(&sql, |q| {
+                        let mut q = q;
+                        for item in items {
+                            q = q #( .bind(&item.#non_pk_field_names) )*;
+                        }
+                        q
+                    }).await #err_map
+                } else {
+                    __pool.execute(&sql, |q| {
+                        let mut q = q;
+                        for item in items {
+                            q = q #( .bind(&item.#non_pk_field_names) )*;
+                        }
+                        q
+                    }).await #err_map
                 };
-                Ok(result #err_map)
+                Ok(rows)
             }
 
             /// 按主键更新实体。如果更新了行则返回 true。

@@ -1,255 +1,114 @@
-/// Marker trait for types deserializable from database rows.
+//! Marker traits that abstract over per-database `FromRow` / `Decode + Type` bounds.
+//!
+//! `#[cfg]` cannot be placed on individual trait bounds, so we use a `macro_rules!`
+//! helper to generate one trait definition + blanket impl per active feature combination.
+
+/// Internal macro: emit a trait definition + blanket impl.
 ///
-/// Automatically satisfied by any type that derives `sqlx::FromRow`,
-/// since `#[derive(sqlx::FromRow)]` generates impls for all enabled databases.
-///
-/// This trait encapsulates per-database `FromRow` bounds so that
-/// proc-macro-generated code and executor methods only need `R: Row`.
+/// ```ignore
+/// __define!(TraitName, #[cfg(...)], { bound1 + bound2 });
+/// ```
+macro_rules! __define {
+    ($name:ident, #[$cfg:meta], { $($bounds:tt)+ }) => {
+        #[$cfg]
+        pub trait $name: Send + Unpin + 'static + $($bounds)+ {}
 
-// ── All three databases ─────────────────────────────────────────────
-#[cfg(all(feature = "postgres", feature = "mysql", feature = "sqlite"))]
-pub trait Row:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-    + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-    + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
-}
-#[cfg(all(feature = "postgres", feature = "mysql", feature = "sqlite"))]
-impl<T> Row for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
+        #[$cfg]
+        #[automatically_derived]
+        impl<T> $name for T where T: Send + Unpin + 'static + $($bounds)+ {}
+    };
 }
 
-// ── postgres + mysql ────────────────────────────────────────────────
-#[cfg(all(feature = "postgres", feature = "mysql", not(feature = "sqlite")))]
-pub trait Row:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-    + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-{
-}
-#[cfg(all(feature = "postgres", feature = "mysql", not(feature = "sqlite")))]
-impl<T> Row for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-{
+// ─── Row ───────────────────────────────────────────────────────────
+// Bound per DB: `for<'r> FromRow<'r, XxxRow>`
+
+macro_rules! __row {
+    (@pg_ms_sq) => {
+        __define!(Row, #[cfg(all(feature = "postgres", feature = "mysql", feature = "sqlite"))],
+            { for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
+            + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
+            + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> });
+    };
+    (@pg_ms) => {
+        __define!(Row, #[cfg(all(feature = "postgres", feature = "mysql", not(feature = "sqlite")))],
+            { for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
+            + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> });
+    };
+    (@pg_sq) => {
+        __define!(Row, #[cfg(all(feature = "postgres", not(feature = "mysql"), feature = "sqlite"))],
+            { for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
+            + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> });
+    };
+    (@ms_sq) => {
+        __define!(Row, #[cfg(all(not(feature = "postgres"), feature = "mysql", feature = "sqlite"))],
+            { for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
+            + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> });
+    };
+    (@pg) => {
+        __define!(Row, #[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))],
+            { for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> });
+    };
+    (@ms) => {
+        __define!(Row, #[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))],
+            { for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> });
+    };
+    (@sq) => {
+        __define!(Row, #[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))],
+            { for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> });
+    };
 }
 
-// ── postgres + sqlite ───────────────────────────────────────────────
-#[cfg(all(feature = "postgres", not(feature = "mysql"), feature = "sqlite"))]
-pub trait Row:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-    + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
-}
-#[cfg(all(feature = "postgres", not(feature = "mysql"), feature = "sqlite"))]
-impl<T> Row for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
+__row! { @pg_ms_sq }
+__row! { @pg_ms }
+__row! { @pg_sq }
+__row! { @ms_sq }
+__row! { @pg }
+__row! { @ms }
+__row! { @sq }
+
+// ─── Scalar ────────────────────────────────────────────────────────
+// Bound per DB: `for<'r> Decode<'r, XxxDB> + Type<XxxDB>`
+
+macro_rules! __scalar {
+    (@pg_ms_sq) => {
+        __define!(Scalar, #[cfg(all(feature = "postgres", feature = "mysql", feature = "sqlite"))],
+            { for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>
+            + for<'r> sqlx::Decode<'r, sqlx::MySql>    + sqlx::Type<sqlx::MySql>
+            + for<'r> sqlx::Decode<'r, sqlx::Sqlite>   + sqlx::Type<sqlx::Sqlite> });
+    };
+    (@pg_ms) => {
+        __define!(Scalar, #[cfg(all(feature = "postgres", feature = "mysql", not(feature = "sqlite")))],
+            { for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>
+            + for<'r> sqlx::Decode<'r, sqlx::MySql>    + sqlx::Type<sqlx::MySql> });
+    };
+    (@pg_sq) => {
+        __define!(Scalar, #[cfg(all(feature = "postgres", not(feature = "mysql"), feature = "sqlite"))],
+            { for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>
+            + for<'r> sqlx::Decode<'r, sqlx::Sqlite>   + sqlx::Type<sqlx::Sqlite> });
+    };
+    (@ms_sq) => {
+        __define!(Scalar, #[cfg(all(not(feature = "postgres"), feature = "mysql", feature = "sqlite"))],
+            { for<'r> sqlx::Decode<'r, sqlx::MySql>  + sqlx::Type<sqlx::MySql>
+            + for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite> });
+    };
+    (@pg) => {
+        __define!(Scalar, #[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))],
+            { for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres> });
+    };
+    (@ms) => {
+        __define!(Scalar, #[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))],
+            { for<'r> sqlx::Decode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql> });
+    };
+    (@sq) => {
+        __define!(Scalar, #[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))],
+            { for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite> });
+    };
 }
 
-// ── mysql + sqlite ──────────────────────────────────────────────────
-#[cfg(all(not(feature = "postgres"), feature = "mysql", feature = "sqlite"))]
-pub trait Row:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-    + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
-}
-#[cfg(all(not(feature = "postgres"), feature = "mysql", feature = "sqlite"))]
-impl<T> Row for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow>
-        + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
-}
-
-// ── postgres only ────────────────────────────────────────────────
-#[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
-pub trait Row: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {}
-#[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
-impl<T> Row for T where T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {}
-
-// ── mysql only ─────────────────────────────────────────────────────
-#[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
-pub trait Row: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> {}
-#[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
-impl<T> Row for T where T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::mysql::MySqlRow> {}
-
-// ── sqlite only ─────────────────────────────────────────────────────
-#[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
-pub trait Row: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> {}
-#[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
-impl<T> Row for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>
-{
-}
-
-// ─── Scalar marker trait ────────────────────────────────────────────
-// Same pattern as `Row`, but for scalar query results (COUNT, SUM, etc.).
-// `sqlx::query_scalar` requires `(T,): FromRow<'r, DB::Row>`, which
-// reduces to `T: Decode + Type` for single-column tuples.
-
-// ── All three databases ─────────────────────────────────────────────
-#[cfg(all(feature = "postgres", feature = "mysql", feature = "sqlite"))]
-pub trait Scalar:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-    + sqlx::Type<sqlx::Postgres>
-    + for<'r> sqlx::Decode<'r, sqlx::MySql>
-    + sqlx::Type<sqlx::MySql>
-    + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-    + sqlx::Type<sqlx::Sqlite>
-{
-}
-#[cfg(all(feature = "postgres", feature = "mysql", feature = "sqlite"))]
-impl<T> Scalar for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-        + sqlx::Type<sqlx::Postgres>
-        + for<'r> sqlx::Decode<'r, sqlx::MySql>
-        + sqlx::Type<sqlx::MySql>
-        + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-        + sqlx::Type<sqlx::Sqlite>
-{
-}
-
-// ── postgres + mysql ────────────────────────────────────────────────
-#[cfg(all(feature = "postgres", feature = "mysql", not(feature = "sqlite")))]
-pub trait Scalar:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-    + sqlx::Type<sqlx::Postgres>
-    + for<'r> sqlx::Decode<'r, sqlx::MySql>
-    + sqlx::Type<sqlx::MySql>
-{
-}
-#[cfg(all(feature = "postgres", feature = "mysql", not(feature = "sqlite")))]
-impl<T> Scalar for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-        + sqlx::Type<sqlx::Postgres>
-        + for<'r> sqlx::Decode<'r, sqlx::MySql>
-        + sqlx::Type<sqlx::MySql>
-{
-}
-
-// ── postgres + sqlite ───────────────────────────────────────────────
-#[cfg(all(feature = "postgres", not(feature = "mysql"), feature = "sqlite"))]
-pub trait Scalar:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-    + sqlx::Type<sqlx::Postgres>
-    + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-    + sqlx::Type<sqlx::Sqlite>
-{
-}
-#[cfg(all(feature = "postgres", not(feature = "mysql"), feature = "sqlite"))]
-impl<T> Scalar for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-        + sqlx::Type<sqlx::Postgres>
-        + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-        + sqlx::Type<sqlx::Sqlite>
-{
-}
-
-// ── mysql + sqlite ──────────────────────────────────────────────────
-#[cfg(all(not(feature = "postgres"), feature = "mysql", feature = "sqlite"))]
-pub trait Scalar:
-    Send
-    + Unpin
-    + 'static
-    + for<'r> sqlx::Decode<'r, sqlx::MySql>
-    + sqlx::Type<sqlx::MySql>
-    + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-    + sqlx::Type<sqlx::Sqlite>
-{
-}
-#[cfg(all(not(feature = "postgres"), feature = "mysql", feature = "sqlite"))]
-impl<T> Scalar for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::Decode<'r, sqlx::MySql>
-        + sqlx::Type<sqlx::MySql>
-        + for<'r> sqlx::Decode<'r, sqlx::Sqlite>
-        + sqlx::Type<sqlx::Sqlite>
-{
-}
-
-// ── postgres only ───────────────────────────────────────────────────
-#[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
-pub trait Scalar:
-    Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::Postgres> + sqlx::Type<sqlx::Postgres>
-{
-}
-#[cfg(all(feature = "postgres", not(feature = "mysql"), not(feature = "sqlite")))]
-impl<T> Scalar for T where
-    T: Send
-        + Unpin
-        + 'static
-        + for<'r> sqlx::Decode<'r, sqlx::Postgres>
-        + sqlx::Type<sqlx::Postgres>
-{
-}
-
-// ── mysql only ──────────────────────────────────────────────────────
-#[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
-pub trait Scalar:
-    Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>
-{
-}
-#[cfg(all(not(feature = "postgres"), feature = "mysql", not(feature = "sqlite")))]
-impl<T> Scalar for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>
-{
-}
-
-// ── sqlite only ──────────────────────────────────────────────────────
-#[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
-pub trait Scalar:
-    Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>
-{
-}
-#[cfg(all(not(feature = "postgres"), not(feature = "mysql"), feature = "sqlite"))]
-impl<T> Scalar for T where
-    T: Send + Unpin + 'static + for<'r> sqlx::Decode<'r, sqlx::Sqlite> + sqlx::Type<sqlx::Sqlite>
-{
-}
+__scalar! { @pg_ms_sq }
+__scalar! { @pg_ms }
+__scalar! { @pg_sq }
+__scalar! { @ms_sq }
+__scalar! { @pg }
+__scalar! { @ms }
+__scalar! { @sq }
