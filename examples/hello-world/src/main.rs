@@ -108,7 +108,7 @@ pub struct CreateItemRequest {
 
 #[main]
 async fn main(app: &mut AppBuilder) -> std::result::Result<(), Error> {
-    app.unified_response();
+    //app.unified_response();
     app.on_shutdown(|_| async move {
         println!("Shutting down...");
         Ok(())
