@@ -2,15 +2,22 @@
   <img src="docs/public/logo.png" alt="WebR Logo" width="150">
 </p>
 
-# WebR
+<h1 align="center">WebR</h1>
 
-**A Spring Boot-inspired web framework for Rust.**
+<p align="center">
+  <strong>A Spring Boot-inspired web framework for Rust.</strong>
+</p>
 
-[中文文档](README_zh-CN.md)
-
-WebR brings the developer experience of Spring Boot to the Rust ecosystem — macro-driven controllers, automatic
+<p align="center">
+  WebR brings the developer experience of Spring Boot to the Rust ecosystem — macro-driven controllers, automatic
 dependency injection, configuration management, and a built-in middleware system, all built on top
-of [Axum](https://github.com/tokio-rs/axum).
+of <a href="https://github.com/tokio-rs/axum">Axum</a>.
+</p>
+
+<p align="center">
+  <a href="README_zh-CN.md">中文</a> · <a href="https://xgpxg.github.io/webr">文档</a>
+</p>
+
 
 ## Features
 
