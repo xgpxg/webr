@@ -2,8 +2,6 @@
   <img src="docs/public/logo.png" alt="WebR Logo" width="150">
 </p>
 
-<h1 align="center">WebR</h1>
-
 <p align="center">
   <strong>A Spring Boot-inspired web framework for Rust.</strong>
 </p>
