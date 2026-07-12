@@ -14,6 +14,7 @@ members = [
     "examples/middleware",
     "examples/sse",
     "examples/cache",
+    "examples/axum-bench",
 ]
 
 [package]
