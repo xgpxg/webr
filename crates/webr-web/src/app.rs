@@ -38,6 +38,8 @@ pub struct AppBuilder {
     host: String,
     /// Max request body size in bytes, default 2MB
     max_body_size: usize,
+    /// Graceful shutdown timeout in seconds, default 10
+    shutdown_timeout: u64,
     /// Whether build() has been called
     built: bool,
     /// Configuration loader (holds raw TOML and profile info)
@@ -84,6 +86,7 @@ impl AppBuilder {
             port: 8080,
             host: "0.0.0.0".into(),
             max_body_size: 2 * 1024 * 1024,
+            shutdown_timeout: 10,
             built: false,
             config,
             on_ready_callbacks: Vec::new(),
@@ -99,6 +102,7 @@ impl AppBuilder {
         builder.host = server.host;
         builder.port = server.port;
         builder.max_body_size = server.max_body_size;
+        builder.shutdown_timeout = server.shutdown_timeout;
 
         builder
     }
@@ -292,6 +296,7 @@ impl AppBuilder {
             host,
             port,
             max_body_size,
+            shutdown_timeout,
             on_shutdown_callbacks,
             ..
         } = self;
@@ -307,22 +312,53 @@ impl AppBuilder {
         tracing::info!("WebR started on http://{}", addr);
 
         // Graceful shutdown: Ctrl+C → on_shutdown callbacks → drain connections
+        // Timeout only starts AFTER Ctrl+C is received
         let shutdown_context = Arc::clone(&context);
-        axum::serve(listener, axum_router)
-            .with_graceful_shutdown(async move {
-                tokio::signal::ctrl_c().await.ok();
-                tracing::info!("Shutdown signal received, draining connections...");
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let serve_future = axum::serve(listener, axum_router).with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.ok();
+            tracing::info!("Shutdown signal received, draining connections...");
 
-                for callback in &on_shutdown_callbacks {
-                    if let Err(e) = callback(&shutdown_context).await {
-                        tracing::error!("on_shutdown callback error: {e}");
-                    }
+            for callback in &on_shutdown_callbacks {
+                if let Err(e) = callback(&shutdown_context).await {
+                    tracing::error!("on_shutdown callback error: {e}");
                 }
-            })
-            .await
-            .map_err(|e| Error::Internal(format!("Server error: {e}")))?;
+            }
 
-        tracing::info!("WebR stopped gracefully.");
+            // Signal that shutdown callbacks are done and draining has started
+            let _ = shutdown_tx.send(());
+        });
+
+        let serve_task = tokio::spawn(async move { serve_future.await });
+
+        // Wait for Ctrl+C + callbacks to complete (drain phase starts)
+        let _ = shutdown_rx.await;
+
+        // Apply timeout only to the drain phase (existing connections completing)
+        let timeout_duration = std::time::Duration::from_secs(shutdown_timeout);
+        match tokio::time::timeout(timeout_duration, serve_task).await {
+            // Task completed: all connections drained
+            Ok(Ok(Ok(()))) => {
+                tracing::info!("WebR stopped gracefully.");
+            }
+            Ok(Ok(Err(e))) => {
+                return Err(Error::Internal(format!("Server error: {e}")));
+            }
+            Ok(Err(join_err)) => {
+                if join_err.is_panic() {
+                    return Err(Error::Internal(format!("Server panicked: {join_err}")));
+                }
+            }
+            // Timeout: force-terminate
+            Err(_) => {
+                tracing::warn!(
+                    "Shutdown timed out after {shutdown_timeout}s, forcing termination. \
+                     Active connections were dropped. \
+                     Consider increasing [server].shutdown_timeout if this is expected."
+                );
+            }
+        }
+
         Ok(())
     }
 }

@@ -16,6 +16,9 @@ pub struct ServerConfig {
     /// 请求体最大字节数，默认 2MB
     #[serde(default = "default_max_body_size")]
     pub max_body_size: usize,
+    /// 关闭超时秒数，默认 10。超时后强制终止连接
+    #[serde(default = "default_shutdown_timeout")]
+    pub shutdown_timeout: u64,
 }
 
 fn default_port() -> u16 {
@@ -31,12 +34,17 @@ fn default_max_body_size() -> usize {
     2 * 1024 * 1024
 }
 
+fn default_shutdown_timeout() -> u64 {
+    10
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             port: default_port(),
             host: default_host(),
             max_body_size: default_max_body_size(),
+            shutdown_timeout: default_shutdown_timeout(),
         }
     }
 }
