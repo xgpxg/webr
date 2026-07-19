@@ -50,6 +50,17 @@ impl From<FrameworkError> for Error {
     }
 }
 
+/// Validator validation errors → 422 Unprocessable Entity
+#[cfg(feature = "validator")]
+impl From<validator::ValidationErrors> for Error {
+    fn from(e: validator::ValidationErrors) -> Self {
+        Self::Http {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: e.to_string(),
+        }
+    }
+}
+
 // ─── Response conversion ──────────────────────────────────────────
 
 /// Generic error response body

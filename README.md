@@ -16,7 +16,6 @@ of <a href="https://github.com/tokio-rs/axum">Axum</a>.
   <a href="README_zh-CN.md">中文</a> · <a href="https://xgpxg.github.io/webr">文档</a>
 </p>
 
-
 ## Features
 
 - **Macro-Driven Controllers** — `#[controller]` with `#[get]`, `#[post]`, etc. for zero-boilerplate route definitions.
@@ -268,7 +267,14 @@ impl ApiController {
 
 ### Request Validation
 
-Derive `Validate` on DTOs — extractors validate automatically:
+Add `validator` crate to your `Cargo.toml`, and enable `validate` feature in `webr`:
+
+```toml
+webr = { version = "0.1", features = ["validator"] }
+validator = "0.20"
+```
+
+Derive `Validate` on DTOs:
 
 ```rust
 #[derive(Deserialize, Validate)]
@@ -288,7 +294,7 @@ struct UserController;
 impl UserController {
     #[post("/users")]
     async fn create(&self, webr::Json(dto): webr::Json<CreateUserDto>) -> webr::Json<User> {
-        // dto is already validated
+        dto.validate()?;
         todo!()
     }
 }

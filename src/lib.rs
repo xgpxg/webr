@@ -119,5 +119,4 @@ pub mod prelude {
     pub use super::*;
     pub use axum::http::StatusCode;
     pub use axum::response::IntoResponse;
-    pub use serde::{Deserialize, Serialize};
 }

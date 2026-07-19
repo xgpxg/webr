@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use webr::prelude::*;
 use webr::{Error, Inject};
+use validator::Validate;
 
 // ─── ORM 实体：Todo ─────────────────────────────────────
 
@@ -21,13 +22,14 @@ pub struct CreateTodoDto {
 // ─── 复杂 #[sql] 查询：动态标签演示 ──────────────────────
 
 /// 搜索查询参数
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct SearchParams {
     pub title: Option<String>,
     pub done: Option<bool>,
     pub sort_by: Option<String>,
     pub ids: Option<String>,
     pub page: Option<u64>,
+    #[validate(range(min = 1, max = 100))]
     pub page_size: Option<u64>,
 }
 
@@ -371,6 +373,8 @@ impl TodoController {
         &self,
         webr::Query(params): webr::Query<SearchParams>,
     ) -> webr::Result<webr::Json<Vec<Todo>>> {
+        params.validate()?;
+        
         let title = params.title.as_deref();
         let done = params.done;
         Ok(webr::Json(self.todo_service.search(title, done).await?))

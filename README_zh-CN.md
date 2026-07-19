@@ -255,7 +255,14 @@ impl ApiController {
 
 ### 请求校验
 
-在 DTO 上 derive `Validate`，提取器自动执行校验：
+在 `Cargo.toml` 中添加 `validator` crate，并启用 `webr` 的 `validator` feature：
+
+```toml
+webr = { version = "0.1", features = ["validator"] }
+validator = "0.20"
+```
+
+在 DTO 上 derive `Validate`：
 
 ```rust
 #[derive(Deserialize, Validate)]

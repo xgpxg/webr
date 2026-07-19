@@ -20,6 +20,8 @@ inventory = "0.3"
 futures-util = "0.3"
 tokio-util = { version = "0.7", features = ["io"] }
 toml = "0.8"
+validator = { version = "0.20.0", features = ["derive"], optional = true }
 
 [features]
 default = []
+validator = ["dep:validator"]
