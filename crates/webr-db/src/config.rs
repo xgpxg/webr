@@ -5,13 +5,12 @@ use serde::Deserialize;
 pub struct DatasourceConfig {
     /// Driver: "mysql", "postgres", or "sqlite"
     pub driver: String,
-    /// Full connection URL (takes precedence over individual fields)
-    pub url: Option<String>,
-    pub host: Option<String>,
-    pub port: Option<u16>,
+    /// Full connection URL, e.g. "postgres://host:5432/mydb"
+    pub url: String,
+    /// Optional username injected into the URL (replaces any embedded credentials)
     pub username: Option<String>,
+    /// Optional password injected into the URL
     pub password: Option<String>,
-    pub database: Option<String>,
     /// Pool tuning parameters
     #[serde(default)]
     pub pool: PoolConfig,
@@ -52,34 +51,33 @@ fn default_idle_timeout() -> u64 {
 }
 
 impl DatasourceConfig {
-    /// Build the connection URL from individual fields if `url` is not set.
-    #[allow(unused_variables)]
+    /// Resolve the final connection URL.
+    ///
+    /// Merges `username`/`password` into the URL's authority section when configured.
     pub fn resolve_url(&self) -> Result<String, crate::DbError> {
-        if let Some(ref url) = self.url {
-            return Ok(url.clone());
+        Ok(self.merge_credentials(&self.url))
+    }
+
+    /// Inject `username`/`password` into an existing URL, replacing any embedded credentials.
+    /// Returns the URL unchanged if neither field is configured.
+    fn merge_credentials(&self, url: &str) -> String {
+        let user = self.username.as_deref();
+        let pass = self.password.as_deref();
+        if user.is_none() && pass.is_none() {
+            return url.to_string();
         }
-        let host = self.host.as_deref().unwrap_or("localhost");
-        let database = self.database.as_deref().unwrap_or("");
-        match self.driver.as_str() {
-            #[cfg(feature = "postgres")]
-            "postgres" => {
-                let port = self.port.unwrap_or(5432);
-                let user = self.username.as_deref().unwrap_or("postgres");
-                let pass = self.password.as_deref().unwrap_or("");
-                Ok(format!("postgres://{user}:{pass}@{host}:{port}/{database}"))
-            }
-            #[cfg(feature = "mysql")]
-            "mysql" => {
-                let port = self.port.unwrap_or(3306);
-                let user = self.username.as_deref().unwrap_or("root");
-                let pass = self.password.as_deref().unwrap_or("");
-                Ok(format!("mysql://{user}:{pass}@{host}:{port}/{database}"))
-            }
-            #[cfg(feature = "sqlite")]
-            "sqlite" => Ok(format!("sqlite://{database}")),
-            other => Err(crate::DbError::Config(format!(
-                "unsupported driver '{other}'"
-            ))),
-        }
+        let Some((scheme, rest)) = url.split_once("://") else {
+            return url.to_string();
+        };
+        // Strip existing credentials (everything before '@' in the authority)
+        let rest = rest.split_once('@').map_or(rest, |(_, after)| after);
+        // Build credential prefix
+        let creds = match (user, pass) {
+            (Some(u), Some(p)) => format!("{u}:{p}@"),
+            (Some(u), None) => format!("{u}@"),
+            (None, Some(p)) => format!(":{p}@"),
+            _ => String::new(),
+        };
+        format!("{scheme}://{creds}{rest}")
     }
 }

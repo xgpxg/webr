@@ -1,6 +1,6 @@
 //! Integration tests for webr-db config and error types (no database required).
 
-use webr_db::{DatasourceConfig, DbError, PoolConfig};
+use webr_db::{DatasourceConfig, PoolConfig};
 
 // ── PoolConfig defaults ──────────────────────────────────────────────
 
@@ -16,132 +16,78 @@ fn pool_config_default_values() {
 // ── DatasourceConfig::resolve_url ────────────────────────────────────
 
 #[test]
-fn resolve_url_returns_explicit_url_when_set() {
+fn resolve_url_returns_url_unchanged_when_no_credentials() {
     let cfg = DatasourceConfig {
         driver: "sqlite".into(),
-        url: Some("sqlite:///tmp/explicit.db".into()),
-        host: None,
-        port: None,
+        url: "sqlite:///tmp/explicit.db".into(),
         username: None,
         password: None,
-        database: None,
         pool: PoolConfig::default(),
     };
     assert_eq!(cfg.resolve_url().unwrap(), "sqlite:///tmp/explicit.db");
 }
 
 #[test]
-fn resolve_url_unsupported_driver_returns_config_error() {
-    let cfg = DatasourceConfig {
-        driver: "oracle".into(),
-        url: None,
-        host: None,
-        port: None,
-        username: None,
-        password: None,
-        database: None,
-        pool: PoolConfig::default(),
-    };
-    let err = cfg.resolve_url().unwrap_err();
-    match err {
-        DbError::Config(msg) => assert!(msg.contains("oracle"), "got: {msg}"),
-        other => panic!("expected DbError::Config, got: {other:?}"),
-    }
-}
-
-#[cfg(feature = "sqlite")]
-#[test]
-fn resolve_url_sqlite_from_fields() {
-    let cfg = DatasourceConfig {
-        driver: "sqlite".into(),
-        url: None,
-        host: None,
-        port: None,
-        username: None,
-        password: None,
-        database: Some("test.db".into()),
-        pool: PoolConfig::default(),
-    };
-    assert_eq!(cfg.resolve_url().unwrap(), "sqlite://test.db");
-}
-
-#[cfg(feature = "postgres")]
-#[test]
-fn resolve_url_postgres_defaults() {
+fn resolve_url_merges_username_and_password() {
     let cfg = DatasourceConfig {
         driver: "postgres".into(),
-        url: None,
-        host: None,
-        port: None,
-        username: None,
-        password: None,
-        database: Some("mydb".into()),
-        pool: PoolConfig::default(),
-    };
-    assert_eq!(
-        cfg.resolve_url().unwrap(),
-        "postgres://postgres:@localhost:5432/mydb"
-    );
-}
-
-#[cfg(feature = "postgres")]
-#[test]
-fn resolve_url_postgres_custom_fields() {
-    let cfg = DatasourceConfig {
-        driver: "postgres".into(),
-        url: None,
-        host: Some("db.example.com".into()),
-        port: Some(5433),
+        url: "postgres://host:5432/mydb".into(),
         username: Some("admin".into()),
         password: Some("secret".into()),
-        database: Some("prod".into()),
         pool: PoolConfig::default(),
     };
     assert_eq!(
         cfg.resolve_url().unwrap(),
-        "postgres://admin:secret@db.example.com:5433/prod"
+        "postgres://admin:secret@host:5432/mydb"
     );
 }
 
-#[cfg(feature = "mysql")]
 #[test]
-fn resolve_url_mysql_defaults() {
+fn resolve_url_merges_username_only() {
     let cfg = DatasourceConfig {
-        driver: "mysql".into(),
-        url: None,
-        host: None,
-        port: None,
-        username: None,
+        driver: "postgres".into(),
+        url: "postgres://host:5432/mydb".into(),
+        username: Some("admin".into()),
         password: None,
-        database: Some("mydb".into()),
         pool: PoolConfig::default(),
     };
     assert_eq!(
         cfg.resolve_url().unwrap(),
-        "mysql://root:@localhost:3306/mydb"
+        "postgres://admin@host:5432/mydb"
     );
 }
 
-#[cfg(feature = "mysql")]
 #[test]
-fn resolve_url_mysql_custom_fields() {
+fn resolve_url_replaces_existing_credentials() {
     let cfg = DatasourceConfig {
-        driver: "mysql".into(),
-        url: None,
-        host: Some("mysql.local".into()),
-        port: Some(3307),
-        username: Some("user1".into()),
-        password: Some("pass".into()),
-        database: Some("app".into()),
+        driver: "postgres".into(),
+        url: "postgres://old:oldpass@host:5432/mydb?sslmode=require".into(),
+        username: Some("new".into()),
+        password: Some("newpass".into()),
         pool: PoolConfig::default(),
     };
     assert_eq!(
         cfg.resolve_url().unwrap(),
-        "mysql://user1:pass@mysql.local:3307/app"
+        "postgres://new:newpass@host:5432/mydb?sslmode=require"
     );
+}
+
+#[test]
+fn resolve_url_returns_url_without_scheme_unchanged() {
+    let cfg = DatasourceConfig {
+        driver: "sqlite".into(),
+        url: "just-a-path.db".into(),
+        username: Some("user".into()),
+        password: Some("pass".into()),
+        pool: PoolConfig::default(),
+    };
+    // URL 无 scheme 时原样返回，无法注入凭据
+    assert_eq!(cfg.resolve_url().unwrap(), "just-a-path.db");
 }
 
 // ── DbError Display ──────────────────────────────────────────────────
+
+use webr_db::DbError;
 
 #[test]
 fn db_error_display_pool_closed() {
