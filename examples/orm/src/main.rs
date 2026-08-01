@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
+use validator::Validate;
 use webr::prelude::*;
 use webr::{Error, Inject};
-use validator::Validate;
 
 // ─── ORM 实体：Todo ─────────────────────────────────────
 
@@ -86,9 +86,7 @@ impl Todo {
 
     /// 静态 SQL：fetch_all 返回元组列表 (id, title, done)
     #[sql(r#"SELECT id, title, done FROM todos"#)]
-    pub async fn list_tuples(
-        pool: &webr::db::DbPool,
-    ) -> webr::Result<Vec<(i64, String, bool)>> {
+    pub async fn list_tuples(pool: &webr::db::DbPool) -> webr::Result<Vec<(i64, String, bool)>> {
         unreachable!()
     }
 
@@ -151,10 +149,7 @@ impl Todo {
             #{id}
         </foreach>"#
     )]
-    pub async fn find_by_ids(
-        pool: &webr::db::DbPool,
-        ids: &[i64],
-    ) -> webr::Result<Vec<Self>> {
+    pub async fn find_by_ids(pool: &webr::db::DbPool, ids: &[i64]) -> webr::Result<Vec<Self>> {
         unreachable!()
     }
 
@@ -213,11 +208,7 @@ impl TodoService {
         }
     }
 
-    pub async fn search(
-        &self,
-        title: Option<&str>,
-        done: Option<bool>,
-    ) -> webr::Result<Vec<Todo>> {
+    pub async fn search(&self, title: Option<&str>, done: Option<bool>) -> webr::Result<Vec<Todo>> {
         Ok(Todo::search(&self.pool, title, done).await?)
     }
 
@@ -245,10 +236,7 @@ impl TodoService {
         Ok(Todo::stats(&self.pool).await?)
     }
 
-    pub async fn stats_by_title(
-        &self,
-        title: Option<&str>,
-    ) -> webr::Result<Option<TodoStats>> {
+    pub async fn stats_by_title(&self, title: Option<&str>) -> webr::Result<Option<TodoStats>> {
         Ok(Todo::stats_by_title(&self.pool, title).await?)
     }
 
@@ -256,10 +244,7 @@ impl TodoService {
         Ok(Todo::first_tuple(&self.pool).await?)
     }
 
-    pub async fn find_tuple_by_title(
-        &self,
-        title: &str,
-    ) -> webr::Result<Option<(i64, String)>> {
+    pub async fn find_tuple_by_title(&self, title: &str) -> webr::Result<Option<(i64, String)>> {
         Ok(Todo::find_tuple_by_title(&self.pool, title).await?)
     }
 
@@ -267,10 +252,7 @@ impl TodoService {
         Ok(Todo::list_tuples(&self.pool).await?)
     }
 
-    pub async fn search_tuples(
-        &self,
-        title: Option<&str>,
-    ) -> webr::Result<Vec<(i64, String)>> {
+    pub async fn search_tuples(&self, title: Option<&str>) -> webr::Result<Vec<(i64, String)>> {
         Ok(Todo::search_tuples(&self.pool, title).await?)
     }
 
@@ -337,10 +319,7 @@ impl TodoController {
     }
 
     #[get("/todos/{id}")]
-    async fn get_todo(
-        &self,
-        webr::Path(id): webr::Path<i64>,
-    ) -> webr::Result<webr::Json<Todo>> {
+    async fn get_todo(&self, webr::Path(id): webr::Path<i64>) -> webr::Result<webr::Json<Todo>> {
         match self.todo_service.get(id).await? {
             Some(todo) => Ok(webr::Json(todo)),
             None => Err(Error::Http {
@@ -374,7 +353,7 @@ impl TodoController {
         webr::Query(params): webr::Query<SearchParams>,
     ) -> webr::Result<webr::Json<Vec<Todo>>> {
         params.validate()?;
-        
+
         let title = params.title.as_deref();
         let done = params.done;
         Ok(webr::Json(self.todo_service.search(title, done).await?))
@@ -404,7 +383,9 @@ impl TodoController {
     ) -> webr::Result<webr::Json<Vec<Todo>>> {
         let title = params.title.as_deref();
         let sort_by = params.sort_by.as_deref();
-        Ok(webr::Json(self.todo_service.search_sorted(title, sort_by).await?))
+        Ok(webr::Json(
+            self.todo_service.search_sorted(title, sort_by).await?,
+        ))
     }
 
     /// GET /api/todos/count-all — #[sql] COUNT(*) 查询
@@ -551,15 +532,17 @@ async fn main(app: &mut webr::AppBuilder) -> webr::Result<()> {
         .config()
         .get::<webr::db::DatasourceConfig>("datasource")
         .map_err(|e| Error::Internal(e.to_string()))?;
-    let pool = webr::db::DbPool::from_config(&ds_config).await.map_err(|e| Error::Database(Box::new(e)))?;
+    let pool = webr::db::DbPool::from_config(&ds_config)
+        .await
+        .map_err(|e| Error::Database(Box::new(e)))?;
 
     // 创建 todos 表
-    webr::db::sqlx::query(
-        "CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done BOOLEAN NOT NULL DEFAULT 0)"
+    pool.execute(
+        "CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, done BOOLEAN NOT NULL DEFAULT 0)",
+        |b|b
     )
-    .execute(pool.as_sq())
     .await
-    .map_err(|e| Error::Database(Box::new(webr::db::DbError::Sqlx(e))))?;
+    .map_err(|e| Error::Database(Box::new(e)))?;
 
     // Store pool globally for #[entity] generated methods
     webr::db::set_pool(pool.inner().clone());
