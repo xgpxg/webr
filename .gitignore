@@ -4,3 +4,5 @@
 /docs/node_modules
 design
 publish.sh
+docs/node_modules
+docs/.vitepress/cache
