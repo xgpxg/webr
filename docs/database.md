@@ -1,6 +1,6 @@
-# 数据库模块
+# 数据库
 
-支持 MySQL / PostgreSQL / SQLite 三种数据库的 ORM 和查询功能，通过 Cargo features 开启。
+支持 MySQL / PostgreSQL / SQLite 数据库的 ORM 和查询功能，基于 [sqlx](https://github.com/launchbadge/sqlx)实现。
 
 ## 启用
 
@@ -15,17 +15,21 @@ webr = { version = "0.1", features = ["mysql"] }   # 或 "postgres", "sqlite"
 
 ```toml
 [datasource]
-driver = "sqlite"
-database = "todos.db"
+# SQLite
+url = "sqlite://todos.db?mode=rwc"
 
-# 或 PostgreSQL:
-# driver = "postgres"
-# url = "postgres://user:pass@localhost:5432/mydb"
-# host = "localhost"
-# port = 5432
-# username = "user"
-# password = "pass"
+# MySQL
+# url = "mysql://localhost:3306/db"
+# user = "user"
+# password = "password"
 
+# PostgreSQL
+# url = "postgres://localhost:5432/db"
+# user = "user"
+# password = "password"
+
+
+# 连接池配置（可选）
 [datasource.pool]
 max_connections = 10
 min_connections = 0
@@ -33,62 +37,81 @@ connect_timeout_secs = 30
 idle_timeout_secs = 600
 ```
 
-如果配置了 `url`，则直接使用完整连接字符串；否则根据 `driver` + 各字段拼接。
-
 ## 初始化连接池
+
+### 手动初始化
 
 ```rust
 use webr::db::{DbPool, DatasourceConfig};
 
 #[webr::main]
 async fn main(app: &mut AppBuilder) -> Result<(), Error> {
+    // 获取数据源配置
     let ds_config = app.config()
         .get::<DatasourceConfig>("datasource")
         .map_err(|e| Error::Internal(e.to_string()))?;
 
+    // 创建连接池
     let pool = DbPool::from_config(&ds_config).await
         .map_err(|e| Error::Database(Box::new(e)))?;
 
-    webr::db::set_pool(pool.inner().clone()); // 设置全局池
-    app.provide(pool)?;                        // 注册到 DI 容器
+    // 设置全局池
+    webr::db::set_pool(pool.inner().clone());
+
+    // 注册到容器
+    app.provide(pool)?;
+
     Ok(())
 }
 ```
 
-或者启用 `auto-init` feature 自动初始化：
+### 自动初始化
+
+启用 `auto-init` feature 自动初始化连接池。
 
 ```toml
 webr = { features = ["sqlite", "auto-init"] }
 ```
 
-`auto-init` 自动检测 `[datasource]` 配置节，自动创建连接池并注册到 DI 容器。
+`auto-init` 自动检测 `[datasource]` 配置节，自动创建连接池并注册到容器。
 
-## #[entity] 实体定义
+## `#[entity]` 宏
+
+标记一个`struct`为数据库实体，自动生成CRUD等关联函数。
 
 ```rust
 #[webr::entity(table = "todos")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Todo {
-    #[column(pk)]           // 标记主键
+    // 标记主键
+    #[column(pk)]
     pub id: i64,
     pub title: String,
     pub done: bool,
 }
 ```
 
-`#[entity]` 宏自动生成：
-- `Iden` 枚举（用于 sea-query 构建查询）
-- CRUD 方法：`find_all()`, `find_by_id()`, `save()`, `delete()`
-- 字段属性：`#[column(pk)]` 主键、`#[column(name = "col")]` 自定义列名
+`#[entity]` 宏自动生成以下函数：
+
+| 函数                             | 返回值                    | 说明                  |
+|--------------------------------|------------------------|---------------------|
+| `find_by_id(id: &PkType)`      | `Result<Option<Self>>` | 按主键查询单条记录           |
+| `find_all()`                   | `Result<Vec<Self>>`    | 查询全部记录              |
+| `find_page(pager: Pagination)` | `Result<Page<Self>>`   | 分页查询                |
+| `save(&self)`                  | `Result<()>`           | 插入实体，忽略 `None` 字段   |
+| `save_batch(items: &[Self])`   | `Result<u64>`          | 批量插入，生成单条 INSERT 语句 |
+| `update(&self)`                | `Result<bool>`         | 按主键更新，只更新 `Some` 字段 |
+| `delete(&self)`                | `Result<bool>`         | 按主键删除               |
+| `count()`                      | `Result<i64>`          | 统计总记录数              |
 
 ### CRUD 示例
 
 ```rust
-// 查询全部（自动使用全局池）
+// 查询全部
 let todos = Todo::find_all().await?;
 
 // 按 ID 查询
-let todo = Todo::find_by_id(&42).await?;
+let todo = Todo::find_by_id(42).await?;
 
 // 保存（INSERT + 返回完整记录）
 let saved = todo.save().await?;
@@ -97,7 +120,7 @@ let saved = todo.save().await?;
 let deleted = todo.delete().await?;
 ```
 
-## #[sql] 动态查询
+## #[sql] 宏
 
 支持 MyBatis 风格的动态 SQL 标签。
 
@@ -133,7 +156,7 @@ pub async fn search(
 }
 ```
 
-**`<where>`** — 自动处理 WHERE 关键字，去除多余的 AND/OR：
+**`<where>`** — 条件查询：
 
 ```rust
 // 当 title = None, done = Some(true) 时生成：
@@ -175,7 +198,26 @@ pub async fn search_sorted(
 }
 ```
 
-**`<trim>`** — 自定义前缀后缀修整。
+**`<trim>`** — 自定义前缀/后缀，并自动去除多余关键字：
+
+```rust
+#[sql(r#"
+    UPDATE todos
+    <trim prefix="SET" suffixOverrides=",">
+        <if test="title">title = #{title},</if>
+        <if test="done">done = #{done},</if>
+    </trim>
+    WHERE id = #{id}
+"#)]
+pub async fn update_optional(
+    pool: &webr::db::DbPool,
+    id: i64,
+    title: Option<&str>,
+    done: Option<bool>,
+) -> Result<()> {
+    unreachable!()
+}
+```
 
 ### 自定义返回类型
 
@@ -203,7 +245,7 @@ pub async fn list_tuples(pool: &webr::db::DbPool) -> Result<Vec<(i64, String)>> 
 
 ### 分页查询
 
-使用 `Pagination` 参数进行分页：
+使用 `Pagination` 参数进行分页。
 
 ```rust
 use webr::db::Pagination;
@@ -225,25 +267,24 @@ pub async fn search_page(
 
 // 使用
 let pager = Pagination::new(1, 20);
-let page = Todo::search_page(&pool, Some("rust"), pager).await?;
-// page.items, page.total, page.page, page.page_size, page.total_pages, page.has_next, page.has_prev
+let page = Todo::search_page( & pool, Some("rust"), pager).await?;
 ```
 
 `Page<T>` 字段：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| items | Vec\<T\> | 当前页数据 |
-| total | i64 | 总记录数 |
-| page | u64 | 当前页码 |
-| page_size | u64 | 每页条数 |
-| total_pages | u64 | 总页数 |
-| has_next | bool | 是否有下一页 |
-| has_prev | bool | 是否有上一页 |
+| 字段          | 类型       | 说明     |
+|-------------|----------|--------|
+| items       | Vec\<T\> | 当前页数据  |
+| total       | i64      | 总记录数   |
+| page        | u64      | 当前页码   |
+| page_size   | u64      | 每页条数   |
+| total_pages | u64      | 总页数    |
+| has_next    | bool     | 是否有下一页 |
+| has_prev    | bool     | 是否有上一页 |
 
-## #[tx] 事务管理
+## 事务
 
-### 声明式事务
+### `#[tx]` 声明式事务
 
 在 impl block 上标注 `#[tx]`，其下所有 `async fn` 自动包装在事务中：
 
@@ -282,10 +323,10 @@ impl TodoService {
 ```rust
 use webr::db::{DbTransaction, scope_txn, try_get_txn};
 
-let txn = DbTransaction::begin(&pool).await?;
-let result = scope_txn(&txn, async {
-    // 事务中的操作...
-    Ok::<_, Error>(())
+let txn = DbTransaction::begin( & pool).await?;
+let result = scope_txn( & txn, async {
+// 事务中的操作...
+Ok::<_, Error>(())
 }).await;
 txn.commit().await?; // 或 txn.rollback().await?;
 ```
@@ -294,17 +335,17 @@ txn.commit().await?; // 或 txn.rollback().await?;
 
 ```rust
 // fetch_all: 查询多行
-pool.fetch_all::<Todo>("SELECT * FROM todos WHERE done = ?", |b| b.bind(false)).await?;
+pool.fetch_all::<Todo>("SELECT * FROM todos WHERE done = ?", | b| b.bind(false)).await?;
 
 // fetch_optional: 查询可选单行
-pool.fetch_optional::<Todo>("SELECT * FROM todos WHERE id = ?", |b| b.bind(42)).await?;
+pool.fetch_optional::<Todo>("SELECT * FROM todos WHERE id = ?", | b| b.bind(42)).await?;
 
 // fetch_one: 查询确切一行（无数据则报错）
-pool.fetch_one::<Todo>("SELECT * FROM todos WHERE id = ?", |b| b.bind(42)).await?;
+pool.fetch_one::<Todo>("SELECT * FROM todos WHERE id = ?", | b| b.bind(42)).await?;
 
 // execute: INSERT/UPDATE/DELETE，返回影响行数
-pool.execute("UPDATE todos SET done = ? WHERE id = ?", |b| b.bind(true).bind(42)).await?;
+pool.execute("UPDATE todos SET done = ? WHERE id = ?", | b| b.bind(true).bind(42)).await?;
 
 // fetch_scalar: 标量查询
-let count: i64 = pool.fetch_scalar("SELECT COUNT(*) FROM todos", |b| b).await?;
+let count: i64 = pool.fetch_scalar("SELECT COUNT(*) FROM todos", | b| b).await?;
 ```
