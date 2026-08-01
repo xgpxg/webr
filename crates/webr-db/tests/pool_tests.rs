@@ -18,12 +18,9 @@ struct Todo {
 async fn test_pool() -> DbPool {
     let cfg = DatasourceConfig {
         driver: "sqlite".into(),
-        url: Some("sqlite::memory:".into()),
-        host: None,
-        port: None,
+        url: "sqlite::memory:".into(),
         username: None,
         password: None,
-        database: None,
         pool: PoolConfig::default(),
     };
     DbPool::from_config(&cfg).await.expect("failed to create pool")
@@ -340,12 +337,9 @@ async fn scope_txn_exposes_transaction_via_try_get_txn() {
 async fn from_config_unsupported_driver_returns_error() {
     let cfg = DatasourceConfig {
         driver: "oracle".into(),
-        url: None,
-        host: None,
-        port: None,
+        url: "jdbc:oracle:thin:@localhost:1521/xe".into(),
         username: None,
         password: None,
-        database: None,
         pool: PoolConfig::default(),
     };
     let result = DbPool::from_config(&cfg).await;

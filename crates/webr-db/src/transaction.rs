@@ -120,6 +120,7 @@ impl DbTransaction {
     /// # Panics
     /// Panics if the driver is not PostgreSQL.
     #[cfg(feature = "postgres")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_pg(guard: &mut TxnInner) -> &mut sqlx::PgConnection {
         #[allow(unreachable_patterns)]
         match guard {
@@ -132,6 +133,7 @@ impl DbTransaction {
     /// # Panics
     /// Panics if the driver is not MySQL.
     #[cfg(feature = "mysql")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_my(guard: &mut TxnInner) -> &mut sqlx::MySqlConnection {
         #[allow(unreachable_patterns)]
         match guard {
@@ -144,6 +146,7 @@ impl DbTransaction {
     /// # Panics
     /// Panics if the driver is not SQLite.
     #[cfg(feature = "sqlite")]
+    #[allow(clippy::wrong_self_convention)]
     pub fn as_sq(guard: &mut TxnInner) -> &mut sqlx::SqliteConnection {
         #[allow(unreachable_patterns)]
         match guard {
