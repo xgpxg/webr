@@ -45,7 +45,7 @@ impl FileController {
 }
 ```
 
-### 从文件路径读取（缓冲模式）
+### 从文件路径读取
 
 ```rust
 #[controller]

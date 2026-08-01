@@ -53,16 +53,6 @@ async fn get_post(&self, Path((user_id, post_id)): Path<(i64, i64)>) -> Json<Pos
 }
 ```
 
-## 支持的 HTTP 方法
-
-| 注解 | HTTP 方法 |
-|------|-----------|
-| `#[get]` | GET |
-| `#[post]` | POST |
-| `#[put]` | PUT |
-| `#[delete]` | DELETE |
-| `#[patch]` | PATCH |
-
 ## 控制器结构体字段
 
 控制器 struct 的字段通过 `Inject<T>` 声明依赖，启动时自动注入：
