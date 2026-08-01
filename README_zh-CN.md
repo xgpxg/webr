@@ -3,10 +3,6 @@
 </p>
 
 <p align="center">
-  <strong>一个受Spring Boot启发的Rust Web框架</strong>
-</p>
-
-<p align="center">
   <a href="README.md">English</a> · <a href="https://xgpxg.github.io/webr">文档</a>
 </p>
     
