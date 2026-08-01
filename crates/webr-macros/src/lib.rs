@@ -57,6 +57,30 @@ pub fn patch(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
 
+/// HEAD 路由注解
+#[proc_macro_attribute]
+pub fn head(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
+/// OPTIONS 路由注解
+#[proc_macro_attribute]
+pub fn options(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
+/// TRACE 路由注解
+#[proc_macro_attribute]
+pub fn trace(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
+/// CONNECT 路由注解
+#[proc_macro_attribute]
+pub fn connect(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    item
+}
+
 /// 应用入口宏：将 async fn main 包装为 tokio runtime + WebR 启动逻辑
 #[proc_macro_attribute]
 pub fn main(_attr: TokenStream, item: TokenStream) -> TokenStream {

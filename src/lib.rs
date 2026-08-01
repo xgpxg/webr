@@ -94,7 +94,8 @@ pub use webr_middleware::{
 
 pub use webr_macros::HttpError;
 pub use webr_macros::{
-    component, config, controller, delete, entity, get, main, patch, post, put, sql, tx,
+    component, config, connect, controller, delete, entity, get, head, main, options, patch, post,
+    put, sql, trace, tx,
 };
 
 pub use async_trait;

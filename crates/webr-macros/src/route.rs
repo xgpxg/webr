@@ -22,6 +22,10 @@ pub enum HttpMethod {
     Put,
     Delete,
     Patch,
+    Head,
+    Options,
+    Trace,
+    Connect,
 }
 
 impl HttpMethod {
@@ -33,6 +37,10 @@ impl HttpMethod {
             Self::Put => "put",
             Self::Delete => "delete",
             Self::Patch => "patch",
+            Self::Head => "head",
+            Self::Options => "options",
+            Self::Trace => "trace",
+            Self::Connect => "connect",
         };
         proc_macro2::Ident::new(name, proc_macro2::Span::call_site())
     }
@@ -45,6 +53,10 @@ impl HttpMethod {
             Self::Put => "PUT",
             Self::Delete => "DELETE",
             Self::Patch => "PATCH",
+            Self::Head => "HEAD",
+            Self::Options => "OPTIONS",
+            Self::Trace => "TRACE",
+            Self::Connect => "CONNECT",
         }
     }
 
@@ -56,13 +68,19 @@ impl HttpMethod {
             "put" => Some(Self::Put),
             "delete" => Some(Self::Delete),
             "patch" => Some(Self::Patch),
+            "head" => Some(Self::Head),
+            "options" => Some(Self::Options),
+            "trace" => Some(Self::Trace),
+            "connect" => Some(Self::Connect),
             _ => None,
         }
     }
 }
 
 /// 路由属性名称集合
-pub const ROUTE_ATTR_NAMES: &[&str] = &["get", "post", "put", "delete", "patch"];
+pub const ROUTE_ATTR_NAMES: &[&str] = &[
+    "get", "post", "put", "delete", "patch", "head", "options", "trace", "connect",
+];
 
 /// 将 WebR 路径语法转换为 axum 0.8+ 路径语法：
 /// `/users/{id}` → `/users/{id}`（axum 0.8 原生支持 `{param}` 语法）
