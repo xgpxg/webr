@@ -13,9 +13,9 @@ use webr_core::component::Component;
 /// Implements [`Component`] so the pool can be registered with
 /// `app.provide(pool)` and injected via `Inject<DbPool>`.
 ///
-/// Derefs to the inner [`webr_db::DbPool`], so all pool methods
-/// (`as_pg`, `as_my`, `as_sq`, `driver`, `placeholder`, …) are
-/// available without explicit delegation.
+/// Derefs to the inner [`webr_db::DbPool`], so the public pool API
+/// (`driver`, `placeholder`, `query_as`, `fetch_all`, …) is available
+/// without explicit delegation.
 pub struct DbPool(webr_db::DbPool);
 
 impl DbPool {

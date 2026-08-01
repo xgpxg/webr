@@ -71,7 +71,7 @@ impl DbPool {
         #[allow(unused_variables)]
         let idle_timeout = Duration::from_secs(pool_cfg.idle_timeout_secs);
 
-        match config.driver.as_str() {
+        match config.resolve_driver()? {
             #[cfg(feature = "postgres")]
             "postgres" => {
                 let pg_pool = sqlx::postgres::PgPoolOptions::new()
@@ -136,7 +136,7 @@ impl DbPool {
     /// # Panics
     /// Panics if the driver is not PostgreSQL.
     #[cfg(feature = "postgres")]
-    pub fn as_pg(&self) -> &sqlx::PgPool {
+    pub(crate) fn as_pg(&self) -> &sqlx::PgPool {
         #[allow(unreachable_patterns)]
         match &self.inner {
             PoolInner::Postgres(p) => p,
@@ -148,7 +148,7 @@ impl DbPool {
     /// # Panics
     /// Panics if the driver is not MySQL.
     #[cfg(feature = "mysql")]
-    pub fn as_my(&self) -> &sqlx::MySqlPool {
+    pub(crate) fn as_my(&self) -> &sqlx::MySqlPool {
         #[allow(unreachable_patterns)]
         match &self.inner {
             PoolInner::MySql(p) => p,
@@ -160,7 +160,7 @@ impl DbPool {
     /// # Panics
     /// Panics if the driver is not SQLite.
     #[cfg(feature = "sqlite")]
-    pub fn as_sq(&self) -> &sqlx::SqlitePool {
+    pub(crate) fn as_sq(&self) -> &sqlx::SqlitePool {
         #[allow(unreachable_patterns)]
         match &self.inner {
             PoolInner::Sqlite(p) => p,

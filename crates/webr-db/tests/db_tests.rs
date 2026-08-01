@@ -18,9 +18,8 @@ fn pool_config_default_values() {
 #[test]
 fn resolve_url_returns_url_unchanged_when_no_credentials() {
     let cfg = DatasourceConfig {
-        driver: "sqlite".into(),
         url: "sqlite:///tmp/explicit.db".into(),
-        username: None,
+        user: None,
         password: None,
         pool: PoolConfig::default(),
     };
@@ -28,11 +27,10 @@ fn resolve_url_returns_url_unchanged_when_no_credentials() {
 }
 
 #[test]
-fn resolve_url_merges_username_and_password() {
+fn resolve_url_merges_user_and_password() {
     let cfg = DatasourceConfig {
-        driver: "postgres".into(),
         url: "postgres://host:5432/mydb".into(),
-        username: Some("admin".into()),
+        user: Some("admin".into()),
         password: Some("secret".into()),
         pool: PoolConfig::default(),
     };
@@ -43,11 +41,10 @@ fn resolve_url_merges_username_and_password() {
 }
 
 #[test]
-fn resolve_url_merges_username_only() {
+fn resolve_url_merges_user_only() {
     let cfg = DatasourceConfig {
-        driver: "postgres".into(),
         url: "postgres://host:5432/mydb".into(),
-        username: Some("admin".into()),
+        user: Some("admin".into()),
         password: None,
         pool: PoolConfig::default(),
     };
@@ -60,9 +57,8 @@ fn resolve_url_merges_username_only() {
 #[test]
 fn resolve_url_replaces_existing_credentials() {
     let cfg = DatasourceConfig {
-        driver: "postgres".into(),
         url: "postgres://old:oldpass@host:5432/mydb?sslmode=require".into(),
-        username: Some("new".into()),
+        user: Some("new".into()),
         password: Some("newpass".into()),
         pool: PoolConfig::default(),
     };
@@ -75,9 +71,8 @@ fn resolve_url_replaces_existing_credentials() {
 #[test]
 fn resolve_url_returns_url_without_scheme_unchanged() {
     let cfg = DatasourceConfig {
-        driver: "sqlite".into(),
         url: "just-a-path.db".into(),
-        username: Some("user".into()),
+        user: Some("user".into()),
         password: Some("pass".into()),
         pool: PoolConfig::default(),
     };

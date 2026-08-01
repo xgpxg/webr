@@ -19,14 +19,21 @@ pub async fn auto_init(app: &mut AppBuilder) -> Result<(), Error> {
     #[cfg(feature = "auto-init")]
     {
         // Auto-initialize cache if configured
-        #[cfg(any(feature = "cache-memory", feature = "cache-sled", feature = "cache-redis"))]
+        #[cfg(any(
+            feature = "cache-memory",
+            feature = "cache-sled",
+            feature = "cache-redis"
+        ))]
         {
             if let Ok(cache_config) = app.config().get::<webr_cache::CacheConfig>("cache") {
                 let cache = crate::cache_adapter::Cache::from_config(&cache_config)
                     .await
                     .map_err(crate::__cache_error)?;
                 app.provide(cache)?;
-                tracing::info!("Cache auto-initialized with backend: {}", cache_config.backend);
+                tracing::info!(
+                    "Cache auto-initialized with backend: {}",
+                    cache_config.backend
+                );
             }
         }
 
@@ -42,7 +49,7 @@ pub async fn auto_init(app: &mut AppBuilder) -> Result<(), Error> {
                 app.provide(pool)?;
                 tracing::info!(
                     "Database pool auto-initialized with driver: {}",
-                    ds_config.driver
+                    ds_config.resolve_driver().unwrap_or("unknown")
                 );
             }
         }

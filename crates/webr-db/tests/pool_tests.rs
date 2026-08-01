@@ -17,9 +17,8 @@ struct Todo {
 /// Build a SQLite in-memory pool.
 async fn test_pool() -> DbPool {
     let cfg = DatasourceConfig {
-        driver: "sqlite".into(),
         url: "sqlite::memory:".into(),
-        username: None,
+        user: None,
         password: None,
         pool: PoolConfig::default(),
     };
@@ -336,9 +335,8 @@ async fn scope_txn_exposes_transaction_via_try_get_txn() {
 #[tokio::test]
 async fn from_config_unsupported_driver_returns_error() {
     let cfg = DatasourceConfig {
-        driver: "oracle".into(),
-        url: "jdbc:oracle:thin:@localhost:1521/xe".into(),
-        username: None,
+        url: "oracle://localhost/xe".into(),
+        user: None,
         password: None,
         pool: PoolConfig::default(),
     };

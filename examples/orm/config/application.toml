@@ -6,5 +6,4 @@ host = "0.0.0.0"
 level = "debug"
 
 [datasource]
-driver = "sqlite"
 url = "sqlite://todos.db?mode=rwc"

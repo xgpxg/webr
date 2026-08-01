@@ -365,7 +365,15 @@ impl DbPool {
             match ins {
                 #[cfg(feature = "postgres")]
                 ExecutionBinder::Postgres(q) => {
-                    q.fetch_one(self.as_pg()).await.map_err(DbError::Sqlx)
+                    q.execute(self.as_pg()).await.map_err(DbError::Sqlx)?;
+                    let fq = self.query_as::<R>(fetch_sql);
+                    match fq {
+                        QueryBinder::Postgres(q) => {
+                            q.fetch_one(self.as_pg()).await.map_err(DbError::Sqlx)
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => unreachable!(),
+                    }
                 }
                 #[cfg(feature = "mysql")]
                 ExecutionBinder::MySql(q) => {
@@ -599,10 +607,18 @@ impl DbTransaction {
             let mut __g = self.lock().await;
             match ins {
                 #[cfg(feature = "postgres")]
-                ExecutionBinder::Postgres(q) => q
-                    .fetch_one(Self::as_pg(&mut __g))
-                    .await
-                    .map_err(DbError::Sqlx),
+                ExecutionBinder::Postgres(q) => {
+                    q.execute(Self::as_pg(&mut __g)).await.map_err(DbError::Sqlx)?;
+                    let fq = self.query_as::<R>(fetch_sql);
+                    match fq {
+                        QueryBinder::Postgres(q) => q
+                            .fetch_one(Self::as_pg(&mut __g))
+                            .await
+                            .map_err(DbError::Sqlx),
+                        #[allow(unreachable_patterns)]
+                        _ => unreachable!(),
+                    }
+                }
                 #[cfg(feature = "mysql")]
                 ExecutionBinder::MySql(q) => {
                     let result = q
