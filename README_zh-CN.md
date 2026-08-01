@@ -16,7 +16,7 @@ WebR 将 Spring Boot 的开发体验带入 Rust 生态 ——
 - **配置系统** — 多文件 TOML + profile 切换 + 环境变量覆盖，`#[config]` 绑定即注入。
 - **中间件** — 全局 / 路径范围中间件，实现 `Middleware` trait 即可。内置 CORS、日志、Panic 恢复、统一响应。
 - **认证鉴权** — `AuthMiddleware` + `Authenticator` trait，支持路径级守卫。
-- **请求校验** — `Json`、`Query`、`Form` 提取器自动校验，基于 `validator` crate。
+- **请求校验** — 引入 `validator` crate，在 handler 中调用 `validate()` 即可完成声明式 DTO 校验。
 - **文件上传下载** — `Multipart` 提取器 + `FileResponse` 支持字节 / 路径 / 内联响应。
 - **SSE 推送** — `SseResponse` + `SseEvent` 实现服务端推送。
 - **声明式错误** — `#[derive(HttpError)]` 定义业务错误，自动映射 HTTP 状态码。
@@ -157,19 +157,19 @@ pub struct ItemController;
 
 #[controller]
 impl ItemController {
-    #[get("/items")]        // GET    /items
+    #[get("/items")]         // GET /items
     async fn list(&self) -> webr::Json<Vec<Item>> { /* ... */ }
 
-    #[get("/items/:id")]    // GET    /items/:id
+    #[get("/items/{id}")]    // GET /items/{id}
     async fn get(&self, webr::Path(id): webr::Path<i64>) -> webr::Json<Item> { /* ... */ }
 
-    #[post("/items")]       // POST   /items
+    #[post("/items")]        // POST /items
     async fn create(&self, webr::Json(dto): webr::Json<CreateDto>) -> StatusCode { /* ... */ }
 
-    #[put("/items/:id")]    // PUT    /items/:id
+    #[put("/items/{id}")]    // PUT /items/{id}
     async fn update(&self, /* ... */) -> webr::Json<Item> { /* ... */ }
 
-    #[delete("/items/:id")] // DELETE /items/:id
+    #[delete("/items/{id}")] // DELETE /items/{id}
     async fn delete(&self, /* ... */) -> StatusCode { /* ... */ }
 }
 ```
@@ -204,7 +204,8 @@ async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
 | `CorsMiddleware`       | Builder 模式配置 CORS 跨域策略                              |
 | `PanicRecovery`        | 捕获 handler panic，返回 500 而非进程崩溃                      |
 | `UnifiedResponse`      | 将 2xx JSON 响应包装为 `{"code", "message", "data"}` 标准格式 |
-| `AuthMiddleware`       | 认证鉴权，配合 `Authenticator` trait 使用                    |
+| `AuthMiddleware`       | 认证，配合 `Authenticator` trait 使用                      |
+| `GuardMiddleware`      | 鉴权，配合 `Guard` trait 使用                              |
 | `CachedBodyMiddleware` | 缓存请求体，供多次读取                                         |
 
 #### 自定义中间件
@@ -235,8 +236,14 @@ pub struct MyAuthenticator;
 
 #[async_trait]
 impl Authenticator for MyAuthenticator {
-    async fn authenticate(&self, request: &Request) -> Result<UserInfo, AuthError> {
-        // 从 Header / Cookie / Token 中提取并验证用户身份
+    type Identity = UserInfo;
+
+    async fn authenticate(
+        &self,
+        headers: &HeaderMap,
+        body: Option<&Bytes>,
+    ) -> Result<Self::Identity, AuthError> {
+        // 从请求头（如 JWT / API Key）中提取并验证用户身份
     }
 }
 ```
@@ -282,7 +289,7 @@ struct UserController;
 impl UserController {
     #[post("/users")]
     async fn create(&self, webr::Json(dto): webr::Json<CreateUserDto>) -> webr::Json<User> {
-        // dto 已通过校验，可直接使用
+        dto.validate()?; // 手动校验，失败时自动返回 422
         todo!()
     }
 }
@@ -304,10 +311,10 @@ pub enum UserError {
 }
 ```
 
-在控制器中使用 `WebrResult<T>` 作为返回类型，错误通过 `?` 自动转为 HTTP 响应：
+在控制器中使用 `webr::Result<T>` 作为返回类型，错误通过 `?` 自动转为 HTTP 响应：
 
 ```rust
-async fn get_user(&self, id: i64) -> WebrResult<webr::Json<User>> {
+async fn get_user(&self, id: i64) -> webr::Result<webr::Json<User>> {
     let user = self.service.find(id).await.ok_or(UserError::NotFound(id))?;
     Ok(webr::Json(user))
 }
@@ -320,7 +327,7 @@ async fn get_user(&self, id: i64) -> WebrResult<webr::Json<User>> {
 #[post("/upload")]
 async fn upload(&self, mut multipart: webr::Multipart) -> webr::Json<Vec<String>> {
     let mut filenames = Vec::new();
-    while let Ok(field) = multipart.next_field().await {
+    while let Ok(Some(field)) = multipart.next_field().await {
         if let Some(name) = field.file_name() {
             filenames.push(name.to_string());
         }
@@ -329,7 +336,7 @@ async fn upload(&self, mut multipart: webr::Multipart) -> webr::Json<Vec<String>
 }
 
 // 下载
-#[get("/download/:filename")]
+#[get("/download/{filename}")]
 async fn download(&self, webr::Path(filename): webr::Path<String>) -> webr::FileResponse {
     webr::FileResponse::from_path(format!("./uploads/{}", filename))
 }
@@ -389,11 +396,11 @@ webr = { version = "0.1", features = ["cache-memory"] }  # 或 "cache-sled"、"c
 |---------------------------------------|----------------------------------|
 | [`hello-world`](examples/hello-world) | 控制器、依赖注入、配置绑定、统一响应               |
 | [`middleware`](examples/middleware)   | 自定义认证中间件、路径范围路由、CORS             |
-| [`validation`](examples/validation)   | JSON / Query / Form 的 DTO 校验     |
 | [`file-upload`](examples/file-upload) | 多文件上传、文件下载、内联预览                  |
 | [`sse`](examples/sse)                 | Server-Sent Events 服务端推送         |
 | [`orm`](examples/orm)                 | 实体 CRUD、`#[sql]` 动态查询、`#[tx]` 事务 |
 | [`cache`](examples/cache)             | 缓存模块使用                           |
+| [`axum-bench`](examples/axum-bench)   | 原生 axum 与 WebR 性能对比基准            |
 
 运行示例：
 
@@ -407,27 +414,16 @@ cargo run
 ```
 webr/
 ├── crates/
-│   ├── webr-core/        # 核心框架：DI、配置、中间件、路由、提取器、响应
+│   ├── webr-core/        # 核心基础：DI、配置、上下文、Inject、Error
+│   ├── webr-web/         # Web 层：AppBuilder、提取器、中间件、响应、路由
 │   ├── webr-db/          # 数据库：连接池、事务、ORM 支持
 │   ├── webr-cache/       # 缓存：内存 / Sled / Redis 多后端
-│   ├── webr-macros/      # 过程宏：controller、component、config、entity、sql、tx、Validate
-│   └── webr-middleware/  # 中间件：认证鉴权、请求体缓存
+│   ├── webr-macros/      # 过程宏：controller、component、config、entity、sql、tx、HttpError
+│   └── webr-middleware/  # 中间件：认证、鉴权、请求体缓存
 ├── examples/             # 示例应用
 └── src/lib.rs            # Umbrella crate，统一导出所有公共 API
 ```
 
-## 技术栈
-
-| 组件      | 依赖                                              |
-|---------|-------------------------------------------------|
-| HTTP 框架 | [Axum 0.8](https://crates.io/crates/axum)       |
-| 异步运行时   | [Tokio](https://crates.io/crates/tokio)         |
-| 序列化     | [Serde](https://crates.io/crates/serde)         |
-| 参数校验    | [validator](https://crates.io/crates/validator) |
-| 配置      | [toml](https://crates.io/crates/toml)           |
-| 日志      | [tracing](https://crates.io/crates/tracing)     |
-| 组件注册    | [inventory](https://crates.io/crates/inventory) |
-
 ## 许可证
 
-MIT
+Apache 2.0

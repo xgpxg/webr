@@ -13,7 +13,7 @@ of <a href="https://github.com/tokio-rs/axum">Axum</a>.
 </p>
 
 <p align="center">
-  <a href="README_zh-CN.md">中文</a> · <a href="https://xgpxg.github.io/webr">文档</a>
+  <a href="README_zh-CN.md">中文</a> · <a href="https://xgpxg.github.io/webr">Document</a>
 </p>
 
 ## Features
@@ -26,7 +26,7 @@ of <a href="https://github.com/tokio-rs/axum">Axum</a>.
 - **Middleware** — Global / path-scoped middleware via a simple trait. Built-in: CORS, Logger, Panic Recovery, Unified
   Response.
 - **Authentication** — `AuthMiddleware` + `Authenticator` trait for path-level guards.
-- **Request Validation** — `Json`, `Query`, `Form` extractors validate automatically via the `validator` crate.
+- **Request Validation** — Add the `validator` crate and call `validate()` in handlers for declarative DTO checks.
 - **File Upload & Download** — `Multipart` extractor and `FileResponse` for byte / path / inline responses.
 - **SSE** — `SseResponse` + `SseEvent` for server-sent events.
 - **Declarative Errors** — `#[derive(HttpError)]` maps business errors to HTTP status codes.
@@ -169,19 +169,19 @@ pub struct ItemController;
 
 #[controller]
 impl ItemController {
-    #[get("/items")]        // GET    /items
+    #[get("/items")]         // GET /items
     async fn list(&self) -> webr::Json<Vec<Item>> { /* ... */ }
 
-    #[get("/items/:id")]    // GET    /items/:id
+    #[get("/items/{id}")]    // GET /items/{id}
     async fn get(&self, webr::Path(id): webr::Path<i64>) -> webr::Json<Item> { /* ... */ }
 
-    #[post("/items")]       // POST   /items
+    #[post("/items")]        // POST /items
     async fn create(&self, webr::Json(dto): webr::Json<CreateDto>) -> StatusCode { /* ... */ }
 
-    #[put("/items/:id")]    // PUT    /items/:id
+    #[put("/items/{id}")]    // PUT /items/{id}
     async fn update(&self, /* ... */) -> webr::Json<Item> { /* ... */ }
 
-    #[delete("/items/:id")] // DELETE /items/:id
+    #[delete("/items/{id}")] // DELETE /items/{id}
     async fn delete(&self, /* ... */) -> StatusCode { /* ... */ }
 }
 ```
@@ -216,7 +216,8 @@ async fn main(app: &mut webr::AppBuilder) -> Result<(), Error> {
 | `CorsMiddleware`       | Builder-pattern CORS configuration                                 |
 | `PanicRecovery`        | Catches handler panics, returns 500 instead of crashing            |
 | `UnifiedResponse`      | Wraps 2xx JSON responses into `{"code", "message", "data"}` format |
-| `AuthMiddleware`       | Authentication & authorization via the `Authenticator` trait       |
+| `AuthMiddleware`       | Authentication via the `Authenticator` trait                       |
+| `GuardMiddleware`      | Authorization via the `Guard` trait                                |
 | `CachedBodyMiddleware` | Caches request body for multiple reads                             |
 
 #### Custom Middleware
@@ -247,8 +248,14 @@ pub struct MyAuthenticator;
 
 #[async_trait]
 impl Authenticator for MyAuthenticator {
-    async fn authenticate(&self, request: &Request) -> Result<UserInfo, AuthError> {
-        // Extract and verify user identity from Header / Cookie / Token
+    type Identity = UserInfo;
+
+    async fn authenticate(
+        &self,
+        headers: &HeaderMap,
+        body: Option<&Bytes>,
+    ) -> Result<Self::Identity, AuthError> {
+        // Extract and verify user identity from headers (e.g. JWT / API Key)
     }
 }
 ```
@@ -267,7 +274,7 @@ impl ApiController {
 
 ### Request Validation
 
-Add `validator` crate to your `Cargo.toml`, and enable `validate` feature in `webr`:
+Add `validator` crate to your `Cargo.toml`, and enable the `validator` feature in `webr`:
 
 ```toml
 webr = { version = "0.1", features = ["validator"] }
@@ -316,10 +323,10 @@ pub enum UserError {
 }
 ```
 
-Use `WebrResult<T>` as the handler return type — errors convert to HTTP responses automatically via `?`:
+Use `webr::Result<T>` as the handler return type — errors convert to HTTP responses automatically via `?`:
 
 ```rust
-async fn get_user(&self, id: i64) -> WebrResult<webr::Json<User>> {
+async fn get_user(&self, id: i64) -> webr::Result<webr::Json<User>> {
     let user = self.service.find(id).await.ok_or(UserError::NotFound(id))?;
     Ok(webr::Json(user))
 }
@@ -332,7 +339,7 @@ async fn get_user(&self, id: i64) -> WebrResult<webr::Json<User>> {
 #[post("/upload")]
 async fn upload(&self, mut multipart: webr::Multipart) -> webr::Json<Vec<String>> {
     let mut filenames = Vec::new();
-    while let Ok(field) = multipart.next_field().await {
+    while let Ok(Some(field)) = multipart.next_field().await {
         if let Some(name) = field.file_name() {
             filenames.push(name.to_string());
         }
@@ -341,7 +348,7 @@ async fn upload(&self, mut multipart: webr::Multipart) -> webr::Json<Vec<String>
 }
 
 // Download
-#[get("/download/:filename")]
+#[get("/download/{filename}")]
 async fn download(&self, webr::Path(filename): webr::Path<String>) -> webr::FileResponse {
     webr::FileResponse::from_path(format!("./uploads/{}", filename))
 }
@@ -402,11 +409,11 @@ Supports Memory, Sled, and Redis backends. See the [`cache` example](examples/ca
 |---------------------------------------|-------------------------------------------------------------|
 | [`hello-world`](examples/hello-world) | Controllers, DI, config binding, unified response           |
 | [`middleware`](examples/middleware)   | Custom auth middleware, path-scoped routing, CORS           |
-| [`validation`](examples/validation)   | DTO validation on JSON / Query / Form                       |
 | [`file-upload`](examples/file-upload) | Multi-file upload, file download, inline preview            |
 | [`sse`](examples/sse)                 | Server-Sent Events streaming                                |
 | [`orm`](examples/orm)                 | Entity CRUD, `#[sql]` dynamic queries, `#[tx]` transactions |
 | [`cache`](examples/cache)             | Cache module usage                                          |
+| [`axum-bench`](examples/axum-bench)   | Raw axum vs WebR performance benchmark                      |
 
 Run an example:
 
@@ -420,26 +427,15 @@ cargo run
 ```
 webr/
 ├── crates/
-│   ├── webr-core/        # Core framework: DI, config, middleware, routing, extractors, response
+│   ├── webr-core/        # Core primitives: DI, config, context, Inject, Error
+│   ├── webr-web/         # Web layer: AppBuilder, extractors, middleware, response, router
 │   ├── webr-db/          # Database: connection pool, transactions, ORM support
 │   ├── webr-cache/       # Cache: Memory / Sled / Redis backends
-│   ├── webr-macros/      # Procedural macros: controller, component, config, entity, sql, tx, Validate
-│   └── webr-middleware/  # Middleware: authentication, request body caching
+│   ├── webr-macros/      # Procedural macros: controller, component, config, entity, sql, tx, HttpError
+│   └── webr-middleware/  # Middleware: authentication, authorization, request body caching
 ├── examples/             # Example applications
 └── src/lib.rs            # Umbrella crate, unified re-export of all public APIs
 ```
-
-## Tech Stack
-
-| Component         | Dependency                                      |
-|-------------------|-------------------------------------------------|
-| HTTP Framework    | [Axum 0.8](https://crates.io/crates/axum)       |
-| Async Runtime     | [Tokio](https://crates.io/crates/tokio)         |
-| Serialization     | [Serde](https://crates.io/crates/serde)         |
-| Validation        | [validator](https://crates.io/crates/validator) |
-| Configuration     | [toml](https://crates.io/crates/toml)           |
-| Logging           | [tracing](https://crates.io/crates/tracing)     |
-| Auto-registration | [inventory](https://crates.io/crates/inventory) |
 
 ## License
 
