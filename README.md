@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="README_zh-CN.md">中文</a> · <a href="https://xgpxg.github.io/webr">Document</a>
+  <a href="README_zh-CN.md">中文</a> · <a href="https://xgpxg.github.io/webr/en">Document</a>
 </p>
 
 
