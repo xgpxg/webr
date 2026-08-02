@@ -1,4 +1,4 @@
-# 缓存模块
+# 缓存
 
 支持 Memory（moka）、Sled 和 Redis 三种缓存后端，提供统一的 KV 操作 API。Redis 后端额外支持哈希、列表、集合等数据结构操作。
 

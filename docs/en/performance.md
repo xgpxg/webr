@@ -1,0 +1,85 @@
+# Performance
+
+As of now, we have only conducted simple performance tests. A complete performance test report will be provided later.
+
+```text
+==============================================================================
+          WebR Framework Performance Benchmark (wrk)
+==============================================================================
+  Target      : http://127.0.0.1:8080
+  Concurrency : 100
+  Duration    : 3s
+  Threads     : 4
+  Endpoints   : 8
+==============================================================================
+
+  [1/8] GET    /                         ... done  194407.89 req/s  lat_avg=0.48ms
+  [2/8] GET    /health                   ... done  197233.10 req/s  lat_avg=0.47ms
+  [3/8] GET    /info                     ... done  184571.73 req/s  lat_avg=0.51ms
+  [4/8] GET    /items                    ... done  180447.15 req/s  lat_avg=0.53ms
+  [5/8] GET    /items/1                  ... done  174097.20 req/s  lat_avg=0.53ms
+  [6/8] POST   /items                    ... done  163804.07 req/s  lat_avg=0.58ms
+  [7/8] PUT    /items/1                  ... done  162897.37 req/s  lat_avg=0.58ms
+  [8/8] DELETE /items/1                  ... done  172557.29 req/s  lat_avg=0.54ms
+
+==============================================================================
+  SUMMARY
+==============================================================================
+  Endpoint                              RPS   Lat(Avg) Lat(Stdev)   Lat(Max)   Transfer/s   Errors
+------------------------------------------------------------------------------
+  GET /                           194407.89     0.48ms     0.27ms     6.26ms     24.47MB         0
+  GET /health                     197233.10     0.47ms     0.25ms     3.58ms     14.11MB         0
+  GET /info                       184571.73     0.51ms     0.25ms     4.70ms     23.76MB         0
+  GET /items                      180447.15     0.53ms     0.33ms    10.26ms     26.67MB         0
+  GET /items/1                    174097.20     0.53ms     0.26ms     4.52ms     21.92MB         0
+  POST /items                     163804.07     0.58ms     0.36ms     8.76ms     21.40MB         0
+  PUT /items/1                    162897.37     0.58ms     0.32ms    10.30ms     22.37MB         0
+  DELETE /items/1                 172557.29     0.54ms     0.28ms     5.27ms     21.72MB         0
+------------------------------------------------------------------------------
+  Total Errors: 0
+  Timestamp   : 2026-07-12 11:11:18
+==============================================================================
+```
+
+`Axum` native:
+
+```text
+==============================================================================
+          WebR Framework Performance Benchmark (wrk)
+==============================================================================
+  Target      : http://127.0.0.1:8080
+  Concurrency : 100
+  Duration    : 3s
+  Threads     : 4
+  Endpoints   : 8
+==============================================================================
+
+  [1/8] GET    /                         ... done  201317.53 req/s  lat_avg=0.47ms
+  [2/8] GET    /health                   ... done  197327.41 req/s  lat_avg=0.47ms
+  [3/8] GET    /info                     ... done  183432.40 req/s  lat_avg=0.51ms
+  [4/8] GET    /items                    ... done  183739.36 req/s  lat_avg=0.50ms
+  [5/8] GET    /items/1                  ... done  176903.06 req/s  lat_avg=0.54ms
+  [6/8] POST   /items                    ... done  167242.84 req/s  lat_avg=0.57ms
+  [7/8] PUT    /items/1                  ... done  162718.26 req/s  lat_avg=0.58ms
+  [8/8] DELETE /items/1                  ... done  171426.84 req/s  lat_avg=0.55ms
+
+==============================================================================
+  SUMMARY
+==============================================================================
+  Endpoint                              RPS   Lat(Avg) Lat(Stdev)   Lat(Max)   Transfer/s   Errors
+------------------------------------------------------------------------------
+  GET /                           201317.53     0.47ms     0.29ms     9.05ms     25.53MB         0
+  GET /health                     197327.41     0.47ms     0.27ms     4.86ms     14.11MB         0
+  GET /info                       183432.40     0.51ms     0.26ms     3.73ms     23.62MB         0
+  GET /items                      183739.36     0.50ms     0.25ms     4.05ms     27.16MB         0
+  GET /items/1                    176903.06     0.54ms     0.28ms     4.85ms     22.27MB         0
+  POST /items                     167242.84     0.57ms     0.31ms     7.15ms     21.85MB         0
+  PUT /items/1                    162718.26     0.58ms     0.33ms     7.41ms     22.35MB         0
+  DELETE /items/1                 171426.84     0.55ms     0.28ms     4.10ms     21.58MB         0
+------------------------------------------------------------------------------
+  Total Errors: 0
+  Timestamp   : 2026-07-12 11:11:58
+==============================================================================
+```
+
+> Performance tests may vary depending on hardware environment. Results are for reference only.
