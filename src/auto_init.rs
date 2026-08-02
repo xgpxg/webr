@@ -55,8 +55,6 @@ pub async fn auto_init(app: &mut AppBuilder) -> Result<(), Error> {
         }
     }
 
-    // Suppress unused variable warning when auto-init is disabled
-    #[cfg(not(feature = "auto-init"))]
     let _ = app;
 
     Ok(())

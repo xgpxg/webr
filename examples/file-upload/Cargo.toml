@@ -1,10 +1,10 @@
 [package]
-name = "file-upload-example"
+name = "file-upload"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-webr = { path = "../.." }
+webr = { path = "../.." ,features = ["web"]}
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

@@ -71,13 +71,13 @@ pub fn generate_component_struct(item_struct: ItemStruct, macro_name: &str) -> T
         impl #struct_name {
             #[doc(hidden)]
             pub fn __webr_construct(
-                ctx: &::webr::ApplicationContext<::webr::Error>,
-            ) -> ::std::result::Result<Self, ::webr::Error> {
+                ctx: &::webr::ApplicationContext<::webr::FrameworkError>,
+            ) -> ::std::result::Result<Self, ::webr::FrameworkError> {
                 ::std::result::Result::Ok(Self { #(#construct_fields,)* })
             }
 
             #[doc(hidden)]
-            pub fn __webr_registration() -> ::webr::ComponentRegistration<::webr::Error> {
+            pub fn __webr_registration() -> ::webr::ComponentRegistration<::webr::FrameworkError> {
                 ::webr::ComponentRegistration {
                     type_id: ::std::any::TypeId::of::<Self>(),
                     name: #struct_name_str,

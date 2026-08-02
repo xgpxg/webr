@@ -18,8 +18,6 @@ pub fn expand_component(item: TokenStream) -> TokenStream {
                 register: |ctx| {
                     ctx.register(<#struct_name>::__webr_registration());
                 },
-                mount: ::std::option::Option::None,
-                routes: &[],
             }
         }
     }

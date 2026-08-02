@@ -56,7 +56,7 @@ pub fn expand_config(attr: TokenStream, item: TokenStream) -> TokenStream {
         // Auto-register: collected at startup by inventory
         ::webr::inventory::submit! {
             ::webr::ConfigEntry {
-                register: |__webr_toml: &::webr::toml::Value, __webr_ctx: &mut ::webr::ApplicationContext<::webr::Error>| {
+                register: |__webr_toml: &::webr::toml::Value, __webr_ctx: &mut ::webr::ApplicationContext<::webr::FrameworkError>| {
                     let __webr_section = #get_section;
                     let __webr_instance: #struct_name = ::webr::serde::Deserialize::deserialize(__webr_section)
                         .map_err(|e| ::webr::FrameworkError::ConfigError(

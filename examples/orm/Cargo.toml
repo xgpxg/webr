@@ -1,11 +1,11 @@
 [package]
-name = "orm-example"
+name = "orm"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-webr = { path = "../..", features = ["sqlite", "validator"] }
+webr = { path = "../..", features = ["sqlite", "validator","web"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

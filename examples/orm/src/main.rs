@@ -532,9 +532,7 @@ async fn main(app: &mut webr::AppBuilder) -> webr::Result<()> {
         .config()
         .get::<webr::db::DatasourceConfig>("datasource")
         .map_err(|e| Error::Internal(e.to_string()))?;
-    let pool = webr::db::DbPool::from_config(&ds_config)
-        .await
-        .map_err(|e| Error::Database(Box::new(e)))?;
+    let pool = app.context().resolve::<webr::db::DbPool>()?;
 
     // 创建 todos 表
     pool.execute(
@@ -544,10 +542,6 @@ async fn main(app: &mut webr::AppBuilder) -> webr::Result<()> {
     .await
     .map_err(|e| Error::Database(Box::new(e)))?;
 
-    // Store pool globally for #[entity] generated methods
-    webr::db::set_pool(pool.inner().clone());
-    // 提供连接池到 DI 容器
-    app.provide(pool)?;
     // 统一响应格式
     app.unified_response();
     Ok(())

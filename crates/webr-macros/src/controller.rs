@@ -111,20 +111,26 @@ fn expand_controller_impl(item_impl: ItemImpl, prefix: Option<String>) -> TokenS
 
         /// Auto-mount routes helper (type-erased fn pointer)
         fn #mount_fn_name(
-            ctx: &::webr::ApplicationContext<::webr::Error>,
+            ctx: &::webr::ApplicationContext<::webr::FrameworkError>,
             router: &mut ::webr::WebrRouter,
         ) -> ::std::result::Result<(), ::webr::Error> {
-            let controller: ::std::sync::Arc<#self_ty> = ctx.resolve_arc()?;
+            let controller: ::std::sync::Arc<#self_ty> = ctx.resolve_arc().map_err(::webr::Error::from)?;
             router.merge_controller(controller);
             ::std::result::Result::Ok(())
         }
 
-        // 自动注册：启动时由 inventory 收集
+        // 组件注册：启动时由 inventory 收集
         ::webr::inventory::submit! {
             ::webr::ComponentEntry {
                 register: |ctx| {
                     ctx.register(<#self_ty>::__webr_registration());
                 },
+            }
+        }
+
+        // 路由挂载：启动时由 inventory 收集（仅 web 层）
+        ::webr::inventory::submit! {
+            ::webr::ControllerEntry {
                 mount: ::std::option::Option::Some(#mount_fn_name),
                 routes: &[#(#route_descriptors,)*],
             }

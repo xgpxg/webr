@@ -2,18 +2,19 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use webr_core::component::{ComponentEntry, ConfigEntry};
 use webr_core::config::ConfigLoader;
 use webr_core::context::ApplicationContext;
 use webr_core::error::FrameworkError;
 
-use crate::component::{ComponentEntry, ConfigEntry};
+use crate::component::ControllerEntry;
 use crate::error::Error;
 use crate::middleware::{Middleware, Next, ScopedMiddleware, UnifiedResponse};
 use crate::router::WebrRouter;
 
 /// Lifecycle callback type: receives IoC container reference, returns async result
 type LifecycleCallback = Box<
-    dyn Fn(&ApplicationContext<Error>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>
+    dyn Fn(&ApplicationContext<FrameworkError>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>
         + Send
         + Sync,
 >;
@@ -25,7 +26,7 @@ type LifecycleCallback = Box<
 /// Components are auto-scanned and registered via `inventory`.
 pub struct AppBuilder {
     /// IoC container managing component lifecycle
-    context: ApplicationContext<Error>,
+    context: ApplicationContext<FrameworkError>,
     /// Route collector aggregating all controller routes
     router: WebrRouter,
     /// Global middleware chain (applied to all routes)
@@ -122,12 +123,12 @@ impl AppBuilder {
     }
 
     /// Get mutable reference to the IoC container.
-    pub fn context_mut(&mut self) -> &mut ApplicationContext<Error> {
+    pub fn context_mut(&mut self) -> &mut ApplicationContext<FrameworkError> {
         &mut self.context
     }
 
     /// Get reference to the IoC container.
-    pub fn context(&self) -> &ApplicationContext<Error> {
+    pub fn context(&self) -> &ApplicationContext<FrameworkError> {
         &self.context
     }
 
@@ -185,7 +186,7 @@ impl AppBuilder {
     /// If any callback returns `Err`, the server will not start.
     pub fn on_ready<F, Fut>(&mut self, callback: F)
     where
-        F: Fn(&ApplicationContext<Error>) -> Fut + Send + Sync + 'static,
+        F: Fn(&ApplicationContext<FrameworkError>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), Error>> + Send + 'static,
     {
         self.on_ready_callbacks
@@ -198,7 +199,7 @@ impl AppBuilder {
     /// Callback failure only logs an error, does not prevent shutdown.
     pub fn on_shutdown<F, Fut>(&mut self, callback: F)
     where
-        F: Fn(&ApplicationContext<Error>) -> Fut + Send + Sync + 'static,
+        F: Fn(&ApplicationContext<FrameworkError>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<(), Error>> + Send + 'static,
     {
         self.on_shutdown_callbacks
@@ -222,10 +223,8 @@ impl AppBuilder {
         }
 
         // Collect all auto-registered component entries
-        let mut entries: Vec<&ComponentEntry> = Vec::new();
         for entry in inventory::iter::<ComponentEntry>() {
             (entry.register)(&mut self.context);
-            entries.push(entry);
         }
 
         // Topological sort and instantiate all components
@@ -233,7 +232,7 @@ impl AppBuilder {
 
         // Mount controller routes and collect route metadata
         let mut all_routes: Vec<(&str, &str, &str)> = Vec::new();
-        for entry in &entries {
+        for entry in inventory::iter::<ControllerEntry>() {
             if let Some(mount) = entry.mount {
                 mount(&self.context, &mut self.router)?;
             }

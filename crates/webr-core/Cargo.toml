@@ -12,3 +12,4 @@ serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 dotenvy = "0.15"
 toml = "0.8"
+inventory = "0.3"

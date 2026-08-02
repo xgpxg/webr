@@ -1,10 +1,10 @@
 [package]
-name = "sse-example"
+name = "sse"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-webr = { path = "../.." }
+webr = { path = "../..",features = ["web"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
