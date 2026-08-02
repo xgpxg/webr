@@ -1,4 +1,4 @@
-# WebR Framework
+# WebR
 
 A lightweight Rust web framework built on top of Axum. Provides macro-driven controllers, automatic dependency injection, multi-file configuration management, and a middleware system, aiming to simplify web development in Rust.
 

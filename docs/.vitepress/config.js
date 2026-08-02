@@ -2,6 +2,11 @@ export default {
     title: 'WebR Framework',
     description: 'A Spring Boot-inspired web framework for Rust',
     base: '/webr/',
+    themeConfig: {
+        search: {
+            provider: 'local'
+        }
+    },
     locales: {
         root: {
             label: '简体中文',
