@@ -20,7 +20,7 @@ members = [
 
 [package]
 name = "webr"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "A Spring Boot-inspired web framework for Rust"
@@ -28,12 +28,12 @@ repository = "https://github.com/xgpxg/webr"
 authors = ["wxg"]
 
 [dependencies]
-webr-core = { version = "0.1.0-alpha.2", path = "crates/webr-core" }
-webr-web = { version = "0.1.0-alpha.2", path = "crates/webr-web", optional = true }
-webr-db = { version = "0.1.0-alpha.2", path = "crates/webr-db", optional = true }
-webr-cache = { version = "0.1.0-alpha.2", path = "crates/webr-cache", optional = true }
-webr-macros = { version = "0.1.0-alpha.2", path = "crates/webr-macros" }
-webr-middleware = { version = "0.1.0-alpha.2", path = "crates/webr-middleware", optional = true }
+webr-core = { version = "0.1.0-alpha.3", path = "crates/webr-core" }
+webr-web = { version = "0.1.0-alpha.3", path = "crates/webr-web", optional = true }
+webr-db = { version = "0.1.0-alpha.3", path = "crates/webr-db", optional = true }
+webr-cache = { version = "0.1.0-alpha.3", path = "crates/webr-cache", optional = true }
+webr-macros = { version = "0.1.0-alpha.3", path = "crates/webr-macros" }
+webr-middleware = { version = "0.1.0-alpha.3", path = "crates/webr-middleware", optional = true }
 axum = { version = "0.8", features = ["multipart"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
