@@ -15,7 +15,7 @@ Edit `Cargo.toml`:
 
 ```toml
 [dependencies]
-webr = { version = "0.1" }
+webr = { version = "0.1", features = ["web"] }
 ```
 
 ## 3. Create configuration file

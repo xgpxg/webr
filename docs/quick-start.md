@@ -15,7 +15,7 @@ cd my-app
 
 ```toml
 [dependencies]
-webr = { version = "0.1" }
+webr = { version = "0.1", features = ["web"] }
 ```
 
 ## 3. 创建配置文件
