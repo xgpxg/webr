@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use webr::prelude::*;
 
 // 自定义组件配置
@@ -15,16 +16,20 @@ pub struct CustomConfig {
 pub struct CustomComponent {
     // 注入组件配置
     config: Inject<CustomConfig>,
+    // 非 Inject 字段，使用 Default::default() 初始化
+    call_count: AtomicUsize,
 }
 
 // 实现自定义组件的一些功能
 impl CustomComponent {
     pub fn greet(&self, name: &str) -> String {
-        format!(
-            "{}, {}{}",
-            self.config.prefix,
-            name,
-            self.config.suffix.as_ref().unwrap_or(&"!".to_string()),
-        )
+        self.call_count.fetch_add(1, Ordering::Relaxed);
+        let default_suffix = "!".to_string();
+        let suffix = self.config.suffix.as_ref().unwrap_or(&default_suffix);
+        format!("{}, {}{}", self.config.prefix, name, suffix,)
+    }
+
+    pub fn get_call_count(&self) -> usize {
+        self.call_count.load(Ordering::Relaxed)
     }
 }

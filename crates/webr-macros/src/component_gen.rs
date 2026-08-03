@@ -26,31 +26,20 @@ pub fn generate_component_struct(item_struct: ItemStruct, macro_name: &str) -> T
     let struct_name = &item_struct.ident;
     let struct_name_str = struct_name.to_string();
 
-    // Validate fields and build constructor field initializers
+    // Build constructor field initializers
     let mut construct_fields = Vec::new();
-    let mut errors = Vec::new();
     for field in item_struct.fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
         match get_inject_inner_type(&field.ty) {
             Some(inner_ty) => {
+                // Inject<T>: resolve from DI container
                 construct_fields.push(quote! { #field_name: ctx.resolve::<#inner_ty>()? });
             }
             None => {
-                errors.push(
-                    syn::Error::new_spanned(
-                        &field.ty,
-                        format!(
-                            "all fields in #[{macro_name}] struct must be Inject<T>,\n\
-                             wrap other dependencies as Component and use Inject<T> to inject them",
-                        ),
-                    )
-                    .to_compile_error(),
-                );
+                // Non-Inject field: initialize with Default::default()
+                construct_fields.push(quote! { #field_name: ::std::default::Default::default() });
             }
         }
-    }
-    if !errors.is_empty() {
-        return quote! { #item_struct #(#errors)* };
     }
 
     // Dependency list for topological sort
